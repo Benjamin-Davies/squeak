@@ -7,10 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 
-use crate::{
-    btree::BTree,
-    header::{Header, HEADER_SIZE},
-};
+use crate::{btree::BTreePage, header::Header};
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -34,76 +31,83 @@ impl DB {
             header: Header::default(),
         };
 
-        let header: Header = state.page_raw(1)?.as_ref().into();
+        let header: Header = state.page(1)?.as_ref().into();
         header.validate();
+        state.header = header;
 
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
         })
     }
 
-    pub fn root(&self) -> Result<BTree> {
+    pub fn root(&self) -> Result<BTreePage> {
         self.btree_at(1)
     }
 
-    pub fn btree_at(&self, page_number: u32) -> Result<BTree> {
+    pub fn btree_at(&self, page_number: u32) -> Result<BTreePage> {
         let mut inner = self.state.lock().unwrap();
         let page = inner.page(page_number)?;
 
-        Ok(BTree::new(self.clone(), page_number, page))
+        Ok(BTreePage::new(self.clone(), page_number, page))
     }
 }
 
 impl DBState {
-    /// Gets the page data, including the header.
-    fn page_raw<'a>(&'a mut self, page_number: u32) -> Result<&'a mut [u8]> {
+    pub(crate) fn page<'a>(&'a mut self, page_number: u32) -> Result<&'a mut [u8]> {
+        fn inner(file: &mut File, header: &Header, page_number: u32) -> Result<Box<[u8]>> {
+            if !(1..=header.database_size()).contains(&page_number) {
+                return Err(anyhow!("page number out of bounds"));
+            }
+
+            let page_size = header.page_size();
+
+            let mut page = vec![0; page_size as usize].into_boxed_slice();
+            file.seek(SeekFrom::Start((page_number as u64 - 1) * page_size as u64))?;
+            file.read_exact(&mut page)?;
+
+            Ok(page)
+        }
+
         let entry = self.pages.entry(page_number);
         let page = match entry {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                if !(1..=self.header.database_size()).contains(&page_number) {
-                    return Err(anyhow!("page number out of bounds"));
+            Entry::Occupied(entry) => {
+                let page = entry.into_mut();
+                if page.len() != self.header.page_size() as usize {
+                    *page = inner(&mut self.file, &self.header, page_number)?;
                 }
-
-                let page_size = self.header.page_size();
-
-                let mut page = vec![0; page_size as usize].into_boxed_slice();
-                self.file
-                    .seek(SeekFrom::Start((page_number as u64 - 1) * page_size as u64))?;
-                self.file.read_exact(&mut page)?;
+                page
+            }
+            Entry::Vacant(entry) => {
+                let page = inner(&mut self.file, &self.header, page_number)?;
                 entry.insert(page)
             }
         };
 
         Ok(page)
     }
-
-    /// Gets the page data, excluding the header (for page 1).
-    pub(crate) fn page<'a>(&'a mut self, page_number: u32) -> Result<&'a mut [u8]> {
-        let mut page = self.page_raw(page_number)?;
-        if page_number == 1 {
-            page = &mut page[HEADER_SIZE..];
-        }
-        Ok(page)
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::btree::BTreeRole;
+    use crate::btree::BTreePageType;
 
     use super::*;
 
     #[test]
     fn test_open() {
-        let _db = DB::open("examples/empty.db").unwrap();
+        let db = DB::open("examples/empty.db").unwrap();
+        assert_eq!(db.state.lock().unwrap().header.page_size(), 4096);
     }
 
     #[test]
     fn test_read_btree() {
         let db = DB::open("examples/empty.db").unwrap();
+
         let root = db.root().unwrap();
-        assert!(root.is_leaf());
-        assert_eq!(root.role(), BTreeRole::Table);
+        assert_eq!(root.page_type(), BTreePageType::LeafTable);
+
+        let cells: Vec<_> = root.table_leaf_cells().collect();
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].0, 1);
     }
 }
