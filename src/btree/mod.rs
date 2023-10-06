@@ -1,7 +1,14 @@
 use serde::de::IntoDeserializer;
-use zerocopy::{big_endian::U16, FromBytes};
+use zerocopy::{
+    big_endian::{U16, U32},
+    FromBytes,
+};
 
 use crate::{db::DB, header::HEADER_SIZE, record::Record, row::Row, varint};
+
+use self::iter::TableRowsIterator;
+
+pub mod iter;
 
 #[derive(Debug, Clone)]
 pub struct BTreePage {
@@ -62,39 +69,50 @@ impl BTreePage {
         self.header.page_type()
     }
 
-    fn cell_pointers(&self) -> impl Iterator<Item = u16> + '_ {
+    fn cell_pointer(&self, cell_index: u16) -> u16 {
         let start = if self.page_number == 1 {
             HEADER_SIZE
         } else {
             0
-        } + self.header.size() as usize;
-        self.data[start..]
-            .chunks_exact(2)
-            .take(self.header.cell_count.into())
-            .map(|chunk| U16::read_from(chunk).unwrap().get())
+        } + self.header.size() as usize
+            + cell_index as usize * 2;
+        U16::read_from_prefix(&self.data[start..]).unwrap().get()
     }
 
-    fn cells(&self) -> impl Iterator<Item = &'_ [u8]> + '_ {
-        self.cell_pointers()
-            .map(move |pointer| &self.data[pointer as usize..])
+    fn cell(&self, cell_index: u16) -> &[u8] {
+        let ptr = self.cell_pointer(cell_index);
+        &self.data[ptr as usize..]
     }
 
-    pub(crate) fn table_leaf_cells(&self) -> impl Iterator<Item = (u64, &'_ [u8])> + '_ {
+    pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (u64, &'_ [u8]) {
         assert_eq!(self.page_type(), BTreePageType::LeafTable);
 
         // TODO: Handle cell overflow.
-        self.cells().map(|cell| {
-            let (payload_size, cell) = varint::read(cell);
-            let (row_id, cell) = varint::read(cell);
-            (row_id, &cell[..payload_size as usize])
-        })
+        let cell = self.cell(cell_index);
+        let (payload_size, cell) = varint::read(cell);
+        let (row_id, cell) = varint::read(cell);
+        (row_id, &cell[..payload_size as usize])
     }
 
-    pub fn table_rows<T: Row>(&self) -> impl Iterator<Item = T> + '_ {
-        self.table_leaf_cells().map(|(_, cell)| {
-            let record = Record::from(cell);
+    pub(crate) fn interior_table_cell(&self, cell_index: u16) -> (u32, u64) {
+        assert_eq!(self.page_type(), BTreePageType::InteriorTable);
+
+        let cell = self.cell(cell_index);
+        let left_child_page_number = U32::read_from_prefix(cell).unwrap().get();
+        let (row_id, _) = varint::read(&cell[4..]);
+
+        (left_child_page_number, row_id)
+    }
+
+    pub fn rows_dyn(&self) -> TableRowsIterator<'_> {
+        TableRowsIterator::new(self)
+    }
+
+    pub fn rows<T: Row>(&self) -> impl Iterator<Item = T> + '_ {
+        self.rows_dyn().map(|(row_id, record)| {
             let mut row = T::deserialize(record.into_deserializer()).unwrap();
             row.set_db(&self.db);
+            row.set_row_id(row_id);
             row
         })
     }

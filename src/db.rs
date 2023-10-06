@@ -40,7 +40,7 @@ impl DB {
         })
     }
 
-    pub fn root(&self) -> Result<BTreePage> {
+    pub fn schema(&self) -> Result<BTreePage> {
         self.btree(1)
     }
 
@@ -103,11 +103,10 @@ mod tests {
     fn test_read_btree() {
         let db = DB::open("examples/empty.db").unwrap();
 
-        let root = db.root().unwrap();
+        let root = db.schema().unwrap();
         assert_eq!(root.page_type(), BTreePageType::LeafTable);
 
-        let cells = root.table_leaf_cells().collect::<Vec<_>>();
-        assert_eq!(cells.len(), 1);
-        assert_eq!(cells[0].0, 1);
+        let cell = root.leaf_table_cell(0);
+        assert_eq!(cell.0, 1);
     }
 }

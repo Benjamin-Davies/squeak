@@ -9,23 +9,23 @@ use serde::{
 
 use crate::record::{ColumnValue, Record};
 
-impl<'de> IntoDeserializer<'de> for Record<'de> {
-    type Deserializer = SeqDeserializer<Box<dyn Iterator<Item = ColumnValue<'de>> + 'de>, Error>;
+impl<'de> IntoDeserializer<'de> for Record {
+    type Deserializer = SeqDeserializer<Box<dyn Iterator<Item = ColumnValue> + 'de>, Error>;
 
     fn into_deserializer(self) -> Self::Deserializer {
-        SeqDeserializer::new(Box::new(self.columns()))
+        SeqDeserializer::new(Box::new(self.into_columns()))
     }
 }
 
-impl<'de> IntoDeserializer<'de> for ColumnValue<'de> {
-    type Deserializer = ColumnValue<'de>;
+impl<'de> IntoDeserializer<'de> for ColumnValue {
+    type Deserializer = ColumnValue;
 
     fn into_deserializer(self) -> Self::Deserializer {
         self
     }
 }
 
-impl<'de> Deserializer<'de> for ColumnValue<'de> {
+impl<'de> Deserializer<'de> for ColumnValue {
     type Error = Error;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -43,8 +43,8 @@ impl<'de> Deserializer<'de> for ColumnValue<'de> {
             ColumnValue::F64(value) => visitor.visit_f64(value),
             ColumnValue::Zero => visitor.visit_bool(false),
             ColumnValue::One => visitor.visit_bool(true),
-            ColumnValue::Blob(value) => visitor.visit_bytes(value),
-            ColumnValue::Text(value) => visitor.visit_str(value),
+            ColumnValue::Blob(value) => visitor.visit_byte_buf(value),
+            ColumnValue::Text(value) => visitor.visit_string(value),
         }
     }
 

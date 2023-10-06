@@ -1,13 +1,13 @@
-use std::{iter, str};
+use std::{fmt, iter};
 
 use crate::varint;
 
 pub mod serialization;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Record<'a> {
+#[derive(Clone, PartialEq, Eq)]
+pub struct Record {
     header_len: u64,
-    data: &'a [u8],
+    data: Box<[u8]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,8 +26,8 @@ pub enum SerialType {
     Text(u64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ColumnValue<'a> {
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColumnValue {
     Null,
     I8(i8),
     I16(i16),
@@ -38,20 +38,21 @@ pub enum ColumnValue<'a> {
     F64(f64),
     Zero,
     One,
-    Blob(&'a [u8]),
-    Text(&'a str),
+    Blob(Vec<u8>),
+    Text(String),
 }
 
-impl<'a> From<&'a [u8]> for Record<'a> {
+impl<'a> From<&'a [u8]> for Record {
     fn from(data: &'a [u8]) -> Self {
-        let (header_len, _) = varint::read(data);
+        let data = data.to_vec().into_boxed_slice();
+        let (header_len, _) = varint::read(&data);
         Self { header_len, data }
     }
 }
 
-impl<'a> Record<'a> {
-    pub fn serial_types(self) -> impl Iterator<Item = SerialType> + 'a {
-        let (header_len, mut data) = varint::read(self.data);
+impl Record {
+    pub fn serial_types(&self) -> impl Iterator<Item = SerialType> + '_ {
+        let (header_len, mut data) = varint::read(&self.data);
         let content_len = self.data.len() - header_len as usize;
 
         iter::from_fn(move || {
@@ -65,7 +66,7 @@ impl<'a> Record<'a> {
         })
     }
 
-    pub fn columns(self) -> impl Iterator<Item = ColumnValue<'a>> {
+    pub fn columns(&self) -> impl Iterator<Item = ColumnValue> + '_ {
         let data = &self.data[self.header_len as usize..];
 
         self.serial_types().scan(data, |data, ty| {
@@ -73,6 +74,34 @@ impl<'a> Record<'a> {
             *data = rest;
             Some(value)
         })
+    }
+
+    pub fn into_columns(self) -> impl Iterator<Item = ColumnValue> {
+        let (header_len, rest) = varint::read(&self.data);
+        let mut header_index = self.data.len() - rest.len();
+        let mut content_index = header_len as usize;
+
+        iter::from_fn(move || {
+            if header_index >= header_len as usize {
+                return None;
+            }
+
+            let (type_, rest) = varint::read(&self.data[header_index..]);
+            header_index = self.data.len() - rest.len();
+
+            let (value, rest) = ColumnValue::read(type_.into(), &self.data[content_index..]);
+            content_index = self.data.len() - rest.len();
+
+            Some(value)
+        })
+    }
+}
+
+impl fmt::Debug for Record {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Record")
+            .field("columns", &self.columns().collect::<Vec<_>>())
+            .finish()
     }
 }
 
@@ -96,8 +125,8 @@ impl From<u64> for SerialType {
     }
 }
 
-impl<'a> ColumnValue<'a> {
-    pub fn read(ty: SerialType, data: &'a [u8]) -> (Self, &[u8]) {
+impl ColumnValue {
+    pub fn read(ty: SerialType, data: &[u8]) -> (Self, &[u8]) {
         match ty {
             SerialType::Null => (Self::Null, data),
             SerialType::I8 => (Self::I8(data[0] as i8), &data[1..]),
@@ -133,9 +162,9 @@ impl<'a> ColumnValue<'a> {
             ),
             SerialType::Zero => (Self::Zero, data),
             SerialType::One => (Self::One, data),
-            SerialType::Blob(n) => (Self::Blob(&data[..n as usize]), &data[n as usize..]),
+            SerialType::Blob(n) => (Self::Blob(data[..n as usize].to_vec()), &data[n as usize..]),
             SerialType::Text(n) => (
-                Self::Text(str::from_utf8(&data[..n as usize]).unwrap()),
+                Self::Text(String::from_utf8(data[..n as usize].to_vec()).unwrap()),
                 &data[n as usize..],
             ),
         }
@@ -178,11 +207,13 @@ mod tests {
         assert_eq!(
             columns,
             vec![
-                ColumnValue::Text("table"),
-                ColumnValue::Text("empty"),
-                ColumnValue::Text("empty"),
+                ColumnValue::Text("table".to_owned()),
+                ColumnValue::Text("empty".to_owned()),
+                ColumnValue::Text("empty".to_owned()),
                 ColumnValue::I8(2),
-                ColumnValue::Text("CREATE TABLE empty (id integer not null primary key)"),
+                ColumnValue::Text(
+                    "CREATE TABLE empty (id integer not null primary key)".to_owned()
+                ),
             ]
         );
     }

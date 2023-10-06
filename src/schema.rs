@@ -61,9 +61,9 @@ mod tests {
     #[test]
     fn test_read_schema() {
         let db = DB::open("examples/empty.db").unwrap();
-        let root = db.root().unwrap();
+        let root = db.schema().unwrap();
 
-        let rows = root.table_rows::<Schema>().collect::<Vec<_>>();
+        let rows = root.rows::<Schema>().collect::<Vec<_>>();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].type_, SchemaType::Table);
         assert_eq!(rows[0].name, "empty");
