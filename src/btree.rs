@@ -1,6 +1,6 @@
 use zerocopy::{big_endian::U16, FromBytes};
 
-use crate::{db::DB, header::HEADER_SIZE};
+use crate::{db::DB, header::HEADER_SIZE, varint};
 
 #[derive(Debug, Clone)]
 pub struct BTreePage {
@@ -83,8 +83,8 @@ impl BTreePage {
 
         // TODO: Handle cell overflow.
         self.cells().map(|cell| {
-            let (payload_size, cell) = read_varint(cell);
-            let (row_id, cell) = read_varint(cell);
+            let (payload_size, cell) = varint::read(cell);
+            let (row_id, cell) = varint::read(cell);
             (row_id, &cell[..payload_size as usize])
         })
     }
@@ -120,44 +120,5 @@ impl BTreePageHeader {
         } else {
             12
         }
-    }
-}
-
-fn read_varint(mut bytes: &[u8]) -> (u64, &[u8]) {
-    let mut result = 0;
-    let mut i = 0;
-
-    loop {
-        let byte = bytes[0];
-        bytes = &bytes[1..];
-
-        if i >= 8 {
-            result <<= 8;
-            result |= byte as u64;
-            break;
-        }
-
-        result <<= 7;
-        result |= (byte & 0x7f) as u64;
-        if byte & 0x80 == 0 {
-            break;
-        }
-
-        i += 1;
-    }
-
-    (result, bytes)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_read_varint() {
-        assert_eq!(read_varint(&[0x01]), (1, &[] as &[u8]));
-        assert_eq!(read_varint(&[0x80, 0x40]), (64, &[] as &[u8]));
-        assert_eq!(read_varint(&[0x80; 9]), (128, &[] as &[u8]));
-        assert_eq!(read_varint(&[0xff; 9]), (u64::MAX, &[] as &[u8]));
     }
 }

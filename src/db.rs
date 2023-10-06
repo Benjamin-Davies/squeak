@@ -53,7 +53,7 @@ impl DB {
 }
 
 impl DBState {
-    pub(crate) fn page<'a>(&'a mut self, page_number: u32) -> Result<&'a mut [u8]> {
+    pub(crate) fn page(&mut self, page_number: u32) -> Result<&mut [u8]> {
         fn inner(file: &mut File, header: &Header, page_number: u32) -> Result<Box<[u8]>> {
             if !(1..=header.database_size()).contains(&page_number) {
                 return Err(anyhow!("page number out of bounds"));
@@ -106,7 +106,7 @@ mod tests {
         let root = db.root().unwrap();
         assert_eq!(root.page_type(), BTreePageType::LeafTable);
 
-        let cells: Vec<_> = root.table_leaf_cells().collect();
+        let cells = root.table_leaf_cells().collect::<Vec<_>>();
         assert_eq!(cells.len(), 1);
         assert_eq!(cells[0].0, 1);
     }
