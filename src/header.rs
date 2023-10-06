@@ -1,6 +1,7 @@
-use zerocopy::{big_endian::U32, little_endian, FromZeroes};
+use zerocopy::{big_endian::U32, little_endian, FromBytes, FromZeroes};
 
 const HEADER_STRING: [u8; 16] = *b"SQLite format 3\0";
+pub const HEADER_SIZE: usize = 100;
 
 #[derive(
     Debug,
@@ -48,8 +49,14 @@ impl Default for Header {
     }
 }
 
+impl<'a> From<&'a [u8]> for Header {
+    fn from(bytes: &'a [u8]) -> Self {
+        Self::read_from_prefix(bytes).unwrap()
+    }
+}
+
 impl Header {
-    pub fn validate(&self) {
+    pub(crate) fn validate(&self) {
         assert_eq!(self.header_string, HEADER_STRING);
 
         let page_size = self.page_size();
@@ -64,11 +71,11 @@ impl Header {
         assert_eq!(self.leaf_payload_fraction, 32);
     }
 
-    pub fn page_size(&self) -> u32 {
+    pub(crate) fn page_size(&self) -> u32 {
         self.page_size.get() as u32 * 256
     }
 
-    pub fn database_size(&self) -> u32 {
+    pub(crate) fn database_size(&self) -> u32 {
         self.database_size.get()
     }
 }
