@@ -41,10 +41,10 @@ impl DB {
     }
 
     pub fn root(&self) -> Result<BTreePage> {
-        self.btree_at(1)
+        self.btree(1)
     }
 
-    pub fn btree_at(&self, page_number: u32) -> Result<BTreePage> {
+    pub(crate) fn btree(&self, page_number: u32) -> Result<BTreePage> {
         let mut inner = self.state.lock().unwrap();
         let page = inner.page(page_number)?;
 

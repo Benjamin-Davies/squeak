@@ -2,6 +2,8 @@ use std::{iter, str};
 
 use crate::varint;
 
+pub mod serialization;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Record<'a> {
     header_len: u64,
@@ -48,7 +50,7 @@ impl<'a> From<&'a [u8]> for Record<'a> {
 }
 
 impl<'a> Record<'a> {
-    pub fn serial_types(&self) -> impl Iterator<Item = SerialType> + '_ {
+    pub fn serial_types(self) -> impl Iterator<Item = SerialType> + 'a {
         let (header_len, mut data) = varint::read(self.data);
         let content_len = self.data.len() - header_len as usize;
 
@@ -63,7 +65,7 @@ impl<'a> Record<'a> {
         })
     }
 
-    pub fn columns(&self) -> impl Iterator<Item = ColumnValue<'_>> + '_ {
+    pub fn columns(self) -> impl Iterator<Item = ColumnValue<'a>> {
         let data = &self.data[self.header_len as usize..];
 
         self.serial_types().scan(data, |data, ty| {

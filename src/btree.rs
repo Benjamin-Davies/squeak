@@ -1,6 +1,7 @@
+use serde::de::IntoDeserializer;
 use zerocopy::{big_endian::U16, FromBytes};
 
-use crate::{db::DB, header::HEADER_SIZE, varint};
+use crate::{db::DB, header::HEADER_SIZE, record::Record, row::Row, varint};
 
 #[derive(Debug, Clone)]
 pub struct BTreePage {
@@ -78,7 +79,7 @@ impl BTreePage {
             .map(move |pointer| &self.data[pointer as usize..])
     }
 
-    pub fn table_leaf_cells(&self) -> impl Iterator<Item = (u64, &'_ [u8])> + '_ {
+    pub(crate) fn table_leaf_cells(&self) -> impl Iterator<Item = (u64, &'_ [u8])> + '_ {
         assert_eq!(self.page_type(), BTreePageType::LeafTable);
 
         // TODO: Handle cell overflow.
@@ -86,6 +87,15 @@ impl BTreePage {
             let (payload_size, cell) = varint::read(cell);
             let (row_id, cell) = varint::read(cell);
             (row_id, &cell[..payload_size as usize])
+        })
+    }
+
+    pub fn table_rows<T: Row>(&self) -> impl Iterator<Item = T> + '_ {
+        self.table_leaf_cells().map(|(_, cell)| {
+            let record = Record::from(cell);
+            let mut row = T::deserialize(record.into_deserializer()).unwrap();
+            row.set_db(&self.db);
+            row
         })
     }
 }
