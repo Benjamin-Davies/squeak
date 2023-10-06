@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 
-use crate::{btree::BTreePage, header::Header};
+use crate::{btree::BTreePage, header::Header, schema::Schema};
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -40,15 +40,25 @@ impl DB {
         })
     }
 
-    pub fn schema(&self) -> Result<BTreePage> {
-        self.btree(1)
-    }
-
-    pub(crate) fn btree(&self, page_number: u32) -> Result<BTreePage> {
+    pub(crate) fn btree_page(&self, page_number: u32) -> Result<BTreePage> {
         let mut inner = self.state.lock().unwrap();
         let page = inner.page(page_number)?;
 
         Ok(BTreePage::new(self.clone(), page_number, page))
+    }
+
+    pub fn schema(&self) -> Result<BTreePage> {
+        self.btree_page(1)
+    }
+
+    pub fn find_schema(&self, name: &str) -> Result<Schema> {
+        let schema = self
+            .schema()?
+            .rows::<Schema>()
+            .find(|schema| schema.as_ref().map_or(false, |schema| schema.name == name))
+            .ok_or_else(|| anyhow!("schema \"{name}\" not found"))??;
+
+        Ok(schema)
     }
 }
 

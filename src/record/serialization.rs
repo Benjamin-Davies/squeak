@@ -9,6 +9,14 @@ use serde::{
 
 use crate::record::{ColumnValue, Record};
 
+pub mod row_id {
+    use serde::{Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        Option::deserialize(deserializer).map(|o| o.unwrap_or(0))
+    }
+}
+
 impl<'de> IntoDeserializer<'de> for Record {
     type Deserializer = SeqDeserializer<Box<dyn Iterator<Item = ColumnValue> + 'de>, Error>;
 
@@ -41,8 +49,8 @@ impl<'de> Deserializer<'de> for ColumnValue {
             ColumnValue::I48(value) => visitor.visit_i64(value),
             ColumnValue::I64(value) => visitor.visit_i64(value),
             ColumnValue::F64(value) => visitor.visit_f64(value),
-            ColumnValue::Zero => visitor.visit_bool(false),
-            ColumnValue::One => visitor.visit_bool(true),
+            ColumnValue::Zero => visitor.visit_i8(0),
+            ColumnValue::One => visitor.visit_i8(1),
             ColumnValue::Blob(value) => visitor.visit_byte_buf(value),
             ColumnValue::Text(value) => visitor.visit_string(value),
         }

@@ -1,5 +1,7 @@
 use std::{borrow::Cow, mem};
 
+use anyhow::Result;
+
 use crate::{db::DB, record::Record};
 
 use super::{BTreePage, BTreePageType};
@@ -23,7 +25,7 @@ impl<'a> TableRowsIterator<'a> {
 }
 
 impl<'a> Iterator for TableRowsIterator<'a> {
-    type Item = (u64, Record);
+    type Item = Result<(u64, Record)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -31,12 +33,14 @@ impl<'a> Iterator for TableRowsIterator<'a> {
                 match self.page.page_type() {
                     BTreePageType::InteriorTable => {
                         let (page_number, _row_id) = self.page.interior_table_cell(self.index);
-                        let page = self.db.btree(page_number).unwrap();
-
-                        let mut page = Cow::Owned(page);
-                        mem::swap(&mut self.page, &mut page);
-
                         self.index += 1;
+
+                        let mut page = match self.db.btree_page(page_number) {
+                            Ok(page) => Cow::Owned(page),
+                            Err(err) => return Some(Err(err)),
+                        };
+
+                        mem::swap(&mut self.page, &mut page);
                         self.stack.push((page, self.index));
                         self.index = 0;
                     }
@@ -44,7 +48,7 @@ impl<'a> Iterator for TableRowsIterator<'a> {
                         let (row_id, record) = self.page.leaf_table_cell(self.index);
                         self.index += 1;
 
-                        return Some((row_id, Record::from(record)));
+                        return Some(Ok((row_id, Record::from(record))));
                     }
                     _ => todo!("{:?}", self.page.page_type()),
                 }

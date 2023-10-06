@@ -35,7 +35,7 @@ impl Row for Schema {
 impl Schema {
     pub fn root(&self) -> Result<BTreePage> {
         let db = self.db.as_ref().unwrap();
-        db.btree(self.rootpage as u32)
+        db.btree_page(self.rootpage as u32)
     }
 }
 
@@ -63,7 +63,7 @@ mod tests {
         let db = DB::open("examples/empty.db").unwrap();
         let root = db.schema().unwrap();
 
-        let rows = root.rows::<Schema>().collect::<Vec<_>>();
+        let rows = root.rows::<Schema>().collect::<Result<Vec<_>>>().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].type_, SchemaType::Table);
         assert_eq!(rows[0].name, "empty");
