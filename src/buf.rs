@@ -1,4 +1,4 @@
-use std::{fmt, ops::Deref, sync::Arc};
+use std::{fmt, mem, ops::Deref, sync::Arc};
 
 use crate::varint;
 
@@ -22,9 +22,14 @@ impl ArcBufSlice {
     }
 
     pub fn consume_varint(&mut self) -> u64 {
-        let (result, len) = varint::read(&self);
+        let (result, len) = varint::read(self);
         self.consume_bytes(len);
         result
+    }
+
+    pub fn consume<T: zerocopy::FromBytes>(&mut self) -> T {
+        let bytes = self.consume_bytes(mem::size_of::<T>());
+        T::read_from(bytes).unwrap()
     }
 
     pub fn truncate(&mut self, new_len: usize) {
@@ -63,6 +68,6 @@ impl Eq for ArcBufSlice {}
 
 impl fmt::Debug for ArcBufSlice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ArcBufSlice").field(&*self).finish()
+        f.debug_tuple("ArcBufSlice").field(&&**self).finish()
     }
 }

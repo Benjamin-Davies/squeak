@@ -1,7 +1,12 @@
 use std::{fmt, iter};
 
+use zerocopy::big_endian::{F64, I16, I32, I64};
+
 use crate::{buf::ArcBufSlice, varint};
 
+use self::ints::{I24, I48};
+
+pub mod ints;
 pub mod serialization;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -26,15 +31,15 @@ pub enum SerialType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ColumnValue {
+pub enum SerialValue {
     Null,
     I8(i8),
-    I16(i16),
-    I24(i32),
-    I32(i32),
-    I48(i64),
-    I64(i64),
-    F64(f64),
+    I16(I16),
+    I24(I24),
+    I32(I32),
+    I48(I48),
+    I64(I64),
+    F64(F64),
     Zero,
     One,
     Blob(Vec<u8>),
@@ -63,14 +68,13 @@ impl Record {
         })
     }
 
-    pub fn columns(&self) -> impl Iterator<Item = ColumnValue> {
+    pub fn columns(&self) -> impl Iterator<Item = SerialValue> {
         let mut data = self.data.clone();
         let (header_len, _) = varint::read(&data);
         data.consume_bytes(header_len as usize);
 
         self.serial_types().scan(data, |data, ty| {
-            let (value, count) = ColumnValue::read(ty, data);
-            data.consume_bytes(count);
+            let value = SerialValue::consume(ty, data);
             Some(value)
         })
     }
@@ -104,45 +108,23 @@ impl From<u64> for SerialType {
     }
 }
 
-impl ColumnValue {
-    pub fn read(ty: SerialType, data: &[u8]) -> (Self, usize) {
+impl SerialValue {
+    pub fn consume(ty: SerialType, data: &mut ArcBufSlice) -> Self {
         match ty {
-            SerialType::Null => (Self::Null, 0),
-            SerialType::I8 => (Self::I8(data[0] as i8), 1),
-            SerialType::I16 => (Self::I16(i16::from_be_bytes([data[0], data[1]])), 2),
-            SerialType::I24 => (
-                Self::I24(i32::from_be_bytes([0, data[0], data[1], data[2]])),
-                3,
-            ),
-            SerialType::I32 => (
-                Self::I32(i32::from_be_bytes([data[0], data[1], data[2], data[3]])),
-                4,
-            ),
-            SerialType::I48 => (
-                Self::I48(i64::from_be_bytes([
-                    0, 0, data[0], data[1], data[2], data[3], data[4], data[5],
-                ])),
-                6,
-            ),
-            SerialType::I64 => (
-                Self::I64(i64::from_be_bytes([
-                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-                ])),
-                8,
-            ),
-            SerialType::F64 => (
-                Self::F64(f64::from_be_bytes([
-                    data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-                ])),
-                8,
-            ),
-            SerialType::Zero => (Self::Zero, 0),
-            SerialType::One => (Self::One, 0),
-            SerialType::Blob(n) => (Self::Blob(data[..n as usize].to_vec()), n as usize),
-            SerialType::Text(n) => (
-                Self::Text(String::from_utf8(data[..n as usize].to_vec()).unwrap()),
-                n as usize,
-            ),
+            SerialType::Null => Self::Null,
+            SerialType::I8 => Self::I8(data.consume()),
+            SerialType::I16 => Self::I16(data.consume()),
+            SerialType::I24 => Self::I24(data.consume()),
+            SerialType::I32 => Self::I32(data.consume()),
+            SerialType::I48 => Self::I48(data.consume()),
+            SerialType::I64 => Self::I64(data.consume()),
+            SerialType::F64 => Self::F64(data.consume()),
+            SerialType::Zero => Self::Zero,
+            SerialType::One => Self::One,
+            SerialType::Blob(n) => Self::Blob(data.consume_bytes(n as usize).to_vec()),
+            SerialType::Text(n) => {
+                Self::Text(String::from_utf8(data.consume_bytes(n as usize).to_vec()).unwrap())
+            }
         }
     }
 }
@@ -187,11 +169,11 @@ mod tests {
         assert_eq!(
             columns,
             vec![
-                ColumnValue::Text("table".to_owned()),
-                ColumnValue::Text("empty".to_owned()),
-                ColumnValue::Text("empty".to_owned()),
-                ColumnValue::I8(2),
-                ColumnValue::Text(
+                SerialValue::Text("table".to_owned()),
+                SerialValue::Text("empty".to_owned()),
+                SerialValue::Text("empty".to_owned()),
+                SerialValue::I8(2),
+                SerialValue::Text(
                     "CREATE TABLE empty (id integer not null primary key)".to_owned()
                 ),
             ]

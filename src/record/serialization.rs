@@ -7,7 +7,7 @@ use serde::{
     Deserializer,
 };
 
-use crate::record::{ColumnValue, Record};
+use crate::record::{Record, SerialValue};
 
 pub mod row_id {
     use serde::{Deserialize, Deserializer};
@@ -18,22 +18,22 @@ pub mod row_id {
 }
 
 impl<'de> IntoDeserializer<'de> for Record {
-    type Deserializer = SeqDeserializer<Box<dyn Iterator<Item = ColumnValue> + 'de>, Error>;
+    type Deserializer = SeqDeserializer<Box<dyn Iterator<Item = SerialValue> + 'de>, Error>;
 
     fn into_deserializer(self) -> Self::Deserializer {
         SeqDeserializer::new(Box::new(self.columns()))
     }
 }
 
-impl<'de> IntoDeserializer<'de> for ColumnValue {
-    type Deserializer = ColumnValue;
+impl<'de> IntoDeserializer<'de> for SerialValue {
+    type Deserializer = SerialValue;
 
     fn into_deserializer(self) -> Self::Deserializer {
         self
     }
 }
 
-impl<'de> Deserializer<'de> for ColumnValue {
+impl<'de> Deserializer<'de> for SerialValue {
     type Error = Error;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -41,18 +41,18 @@ impl<'de> Deserializer<'de> for ColumnValue {
         V: de::Visitor<'de>,
     {
         match self {
-            ColumnValue::Null => visitor.visit_none(),
-            ColumnValue::I8(value) => visitor.visit_i8(value),
-            ColumnValue::I16(value) => visitor.visit_i16(value),
-            ColumnValue::I24(value) => visitor.visit_i32(value),
-            ColumnValue::I32(value) => visitor.visit_i32(value),
-            ColumnValue::I48(value) => visitor.visit_i64(value),
-            ColumnValue::I64(value) => visitor.visit_i64(value),
-            ColumnValue::F64(value) => visitor.visit_f64(value),
-            ColumnValue::Zero => visitor.visit_i8(0),
-            ColumnValue::One => visitor.visit_i8(1),
-            ColumnValue::Blob(value) => visitor.visit_byte_buf(value),
-            ColumnValue::Text(value) => visitor.visit_string(value),
+            SerialValue::Null => visitor.visit_none(),
+            SerialValue::I8(value) => visitor.visit_i8(value),
+            SerialValue::I16(value) => visitor.visit_i16(value.get()),
+            SerialValue::I24(value) => visitor.visit_i32(value.get()),
+            SerialValue::I32(value) => visitor.visit_i32(value.get()),
+            SerialValue::I48(value) => visitor.visit_i64(value.get()),
+            SerialValue::I64(value) => visitor.visit_i64(value.get()),
+            SerialValue::F64(value) => visitor.visit_f64(value.get()),
+            SerialValue::Zero => visitor.visit_i8(0),
+            SerialValue::One => visitor.visit_i8(1),
+            SerialValue::Blob(value) => visitor.visit_byte_buf(value),
+            SerialValue::Text(value) => visitor.visit_string(value),
         }
     }
 

@@ -52,12 +52,10 @@ impl<'a> Iterator for TableRowsIterator<'a> {
                     }
                     _ => todo!("{:?}", self.page.page_type()),
                 }
+            } else if let Some(popped) = self.stack.pop() {
+                (self.page, self.index) = popped;
             } else {
-                if let Some(popped) = self.stack.pop() {
-                    (self.page, self.index) = popped;
-                } else {
-                    return None;
-                }
+                return None;
             }
         }
     }
