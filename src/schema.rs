@@ -1,11 +1,11 @@
-use std::fmt;
+use std::marker::PhantomData;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
 
 use crate::{btree::BTreePage, db::DB, row::Row};
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Schema {
     #[serde(skip)]
     db: Option<DB>,
@@ -26,6 +26,12 @@ pub enum SchemaType {
     Trigger,
 }
 
+#[derive(Debug, Clone)]
+pub struct Table<T> {
+    pub(crate) root: BTreePage,
+    pub(crate) _marker: PhantomData<T>,
+}
+
 impl Row for Schema {
     fn set_db(&mut self, db: &DB) {
         self.db = Some(db.clone());
@@ -33,22 +39,38 @@ impl Row for Schema {
 }
 
 impl Schema {
-    pub fn root(&self) -> Result<BTreePage> {
+    pub fn into_table<T>(self) -> Result<Table<T>> {
+        if self.type_ != SchemaType::Table {
+            return Err(anyhow!("Schema is not a table"));
+        }
+        // TODO: Validate that this table matches the type T.
+        let root = self.root()?;
+
+        Ok(Table {
+            root,
+            _marker: PhantomData,
+        })
+    }
+
+    pub(crate) fn root(&self) -> Result<BTreePage> {
         let db = self.db.as_ref().unwrap();
         db.btree_page(self.rootpage as u32)
     }
 }
 
-impl fmt::Debug for Schema {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Skip the `db` field.
-        f.debug_struct("Schema")
-            .field("type_", &self.type_)
-            .field("name", &self.name)
-            .field("tbl_name", &self.tbl_name)
-            .field("rootpage", &self.rootpage)
-            .field("sql", &self.sql)
-            .finish()
+impl<T: Row> Table<T> {
+    pub fn iter(&self) -> impl Iterator<Item = Result<T>> + '_ {
+        self.root.rows()
+    }
+
+    pub fn find(&self, mut predicate: impl FnMut(&T) -> bool) -> Result<Option<T>> {
+        for row in self.iter() {
+            let row = row?;
+            if predicate(&row) {
+                return Ok(Some(row));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -61,7 +83,7 @@ mod tests {
     #[test]
     fn test_read_schema() {
         let db = DB::open("examples/empty.db").unwrap();
-        let root = db.schema().unwrap();
+        let root = db.btree_page(1).unwrap();
 
         let rows = root.rows::<Schema>().collect::<Result<Vec<_>>>().unwrap();
         assert_eq!(rows.len(), 1);

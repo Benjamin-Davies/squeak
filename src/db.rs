@@ -1,15 +1,22 @@
 use std::{
     collections::{btree_map::Entry, BTreeMap},
+    fmt,
     fs::File,
     io::{Read, Seek, SeekFrom},
+    marker::PhantomData,
     sync::{Arc, Mutex},
 };
 
 use anyhow::{anyhow, Result};
 
-use crate::{btree::BTreePage, buf::ArcBuf, header::Header, schema::Schema};
+use crate::{
+    btree::BTreePage,
+    buf::ArcBuf,
+    header::Header,
+    schema::{Schema, Table},
+};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DB {
     pub(crate) state: Arc<Mutex<DBState>>,
 }
@@ -47,18 +54,11 @@ impl DB {
         Ok(BTreePage::new(self.clone(), page_number, page.into()))
     }
 
-    pub fn schema(&self) -> Result<BTreePage> {
-        self.btree_page(1)
-    }
-
-    pub fn find_schema(&self, name: &str) -> Result<Schema> {
-        let schema = self
-            .schema()?
-            .rows::<Schema>()
-            .find(|schema| schema.as_ref().map_or(false, |schema| schema.name == name))
-            .ok_or_else(|| anyhow!("schema \"{name}\" not found"))??;
-
-        Ok(schema)
+    pub fn schema(&self) -> Result<Table<Schema>> {
+        Ok(Table {
+            root: self.btree_page(1)?,
+            _marker: PhantomData,
+        })
     }
 }
 
@@ -97,6 +97,12 @@ impl DBState {
     }
 }
 
+impl fmt::Debug for DB {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("DB")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::btree::BTreePageType;
@@ -113,7 +119,7 @@ mod tests {
     fn test_read_btree() {
         let db = DB::open("examples/empty.db").unwrap();
 
-        let root = db.schema().unwrap();
+        let root = db.btree_page(1).unwrap();
         assert_eq!(root.page_type(), BTreePageType::LeafTable);
 
         let cell = root.leaf_table_cell(0);

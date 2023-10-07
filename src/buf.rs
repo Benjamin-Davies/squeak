@@ -68,6 +68,8 @@ impl Eq for ArcBufSlice {}
 
 impl fmt::Debug for ArcBufSlice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ArcBufSlice").field(&&**self).finish()
+        f.debug_struct("ArcBufSlice")
+            .field("len", &self.len())
+            .finish()
     }
 }

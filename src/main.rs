@@ -1,8 +1,13 @@
 use std::env::args;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
-use sqlite3_rs::{db::DB, record::serialization::row_id, row::Row};
+use sqlite3_rs::{db::DB, record::serialization::row_id, row::Row, schema::Table};
+
+#[derive(Debug)]
+struct CrashDB {
+    crashes: Table<Crash>,
+}
 
 #[derive(Debug, Deserialize)]
 struct Crash {
@@ -21,28 +26,26 @@ impl Row for Crash {
     }
 }
 
+impl CrashDB {
+    fn new(db: &DB) -> Result<Self> {
+        let schema = db.schema()?;
+        Ok(Self {
+            crashes: schema
+                .find(|s| s.name == "crashes")?
+                .ok_or_else(|| anyhow!("Could not find \"crashes\" table"))?
+                .into_table()?,
+        })
+    }
+}
+
 fn main() {
     let path = args().nth(1).unwrap();
     let db = DB::open(&path).unwrap();
 
-    let crashes = db.find_schema("crashes").unwrap();
-    dbg!(&crashes);
+    let crash_db = CrashDB::new(&db).unwrap();
+    dbg!(&crash_db);
 
-    let head_dyn = crashes
-        .root()
-        .unwrap()
-        .rows_dyn()
-        .take(5)
-        .collect::<Result<Vec<_>>>()
-        .unwrap();
-    dbg!(head_dyn);
-
-    let head = crashes
-        .root()
-        .unwrap()
-        .rows::<Crash>()
-        .take(5)
-        .collect::<Result<Vec<_>>>()
-        .unwrap();
-    dbg!(head);
+    let all_crashes = crash_db.crashes.iter().collect::<Result<Vec<_>>>().unwrap();
+    dbg!(all_crashes.len());
+    dbg!(&all_crashes[0..10]);
 }
