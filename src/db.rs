@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 
-use crate::{btree::BTreePage, header::Header, schema::Schema};
+use crate::{btree::BTreePage, buf::ArcBuf, header::Header, schema::Schema};
 
 #[derive(Debug, Clone)]
 pub struct DB {
@@ -17,7 +17,7 @@ pub struct DB {
 #[derive(Debug)]
 pub(crate) struct DBState {
     file: File,
-    pages: BTreeMap<u32, Box<[u8]>>,
+    pages: BTreeMap<u32, ArcBuf>,
     header: Header,
 }
 
@@ -44,7 +44,7 @@ impl DB {
         let mut inner = self.state.lock().unwrap();
         let page = inner.page(page_number)?;
 
-        Ok(BTreePage::new(self.clone(), page_number, page))
+        Ok(BTreePage::new(self.clone(), page_number, page.into()))
     }
 
     pub fn schema(&self) -> Result<BTreePage> {
@@ -63,19 +63,19 @@ impl DB {
 }
 
 impl DBState {
-    pub(crate) fn page(&mut self, page_number: u32) -> Result<&mut [u8]> {
-        fn inner(file: &mut File, header: &Header, page_number: u32) -> Result<Box<[u8]>> {
+    pub(crate) fn page(&mut self, page_number: u32) -> Result<ArcBuf> {
+        fn inner(file: &mut File, header: &Header, page_number: u32) -> Result<ArcBuf> {
             if !(1..=header.database_size()).contains(&page_number) {
                 return Err(anyhow!("page number out of bounds"));
             }
 
             let page_size = header.page_size();
 
-            let mut page = vec![0; page_size as usize].into_boxed_slice();
+            let mut page = vec![0; page_size as usize];
             file.seek(SeekFrom::Start((page_number as u64 - 1) * page_size as u64))?;
             file.read_exact(&mut page)?;
 
-            Ok(page)
+            Ok(page.into())
         }
 
         let entry = self.pages.entry(page_number);
@@ -85,11 +85,11 @@ impl DBState {
                 if page.len() != self.header.page_size() as usize {
                     *page = inner(&mut self.file, &self.header, page_number)?;
                 }
-                page
+                page.clone()
             }
             Entry::Vacant(entry) => {
                 let page = inner(&mut self.file, &self.header, page_number)?;
-                entry.insert(page)
+                entry.insert(page).clone()
             }
         };
 

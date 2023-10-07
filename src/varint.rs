@@ -1,10 +1,9 @@
-pub(crate) fn read(mut bytes: &[u8]) -> (u64, &[u8]) {
+pub(crate) fn read(bytes: &[u8]) -> (u64, usize) {
     let mut result = 0;
     let mut i = 0;
 
     loop {
-        let byte = bytes[0];
-        bytes = &bytes[1..];
+        let byte = bytes[i];
 
         if i >= 8 {
             result <<= 8;
@@ -21,7 +20,7 @@ pub(crate) fn read(mut bytes: &[u8]) -> (u64, &[u8]) {
         i += 1;
     }
 
-    (result, bytes)
+    (result, i + 1)
 }
 
 #[cfg(test)]
@@ -30,9 +29,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_read_varint() {
-        assert_eq!(read(&[0x01]), (1, &[] as &[u8]));
-        assert_eq!(read(&[0x80, 0x40]), (64, &[] as &[u8]));
-        assert_eq!(read(&[0x80; 9]), (128, &[] as &[u8]));
-        assert_eq!(read(&[0xff; 9]), (u64::MAX, &[] as &[u8]));
+        assert_eq!(read(&[0x01]), (1, 1));
+        assert_eq!(read(&[0x80, 0x40]), (64, 2));
+        assert_eq!(read(&[0x80; 9]), (128, 9));
+        assert_eq!(read(&[0xff; 9]), (u64::MAX, 9));
     }
 }

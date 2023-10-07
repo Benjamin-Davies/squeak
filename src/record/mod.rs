@@ -1,13 +1,12 @@
 use std::{fmt, iter};
 
-use crate::varint;
+use crate::{buf::ArcBufSlice, varint};
 
 pub mod serialization;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Record {
-    header_len: u64,
-    data: Box<[u8]>,
+    data: ArcBufSlice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,17 +41,16 @@ pub enum ColumnValue {
     Text(String),
 }
 
-impl<'a> From<&'a [u8]> for Record {
-    fn from(data: &'a [u8]) -> Self {
-        let data = data.to_vec().into_boxed_slice();
-        let (header_len, _) = varint::read(&data);
-        Self { header_len, data }
+impl From<ArcBufSlice> for Record {
+    fn from(data: ArcBufSlice) -> Self {
+        Self { data }
     }
 }
 
 impl Record {
-    pub fn serial_types(&self) -> impl Iterator<Item = SerialType> + '_ {
-        let (header_len, mut data) = varint::read(&self.data);
+    pub fn serial_types(&self) -> impl Iterator<Item = SerialType> {
+        let mut data = self.data.clone();
+        let header_len = data.consume_varint();
         let content_len = self.data.len() - header_len as usize;
 
         iter::from_fn(move || {
@@ -60,38 +58,19 @@ impl Record {
                 return None;
             }
 
-            let (type_, rest) = varint::read(data);
-            data = rest;
+            let type_ = data.consume_varint();
             Some(type_.into())
         })
     }
 
-    pub fn columns(&self) -> impl Iterator<Item = ColumnValue> + '_ {
-        let data = &self.data[self.header_len as usize..];
+    pub fn columns(&self) -> impl Iterator<Item = ColumnValue> {
+        let mut data = self.data.clone();
+        let (header_len, _) = varint::read(&data);
+        data.consume_bytes(header_len as usize);
 
         self.serial_types().scan(data, |data, ty| {
-            let (value, rest) = ColumnValue::read(ty, *data);
-            *data = rest;
-            Some(value)
-        })
-    }
-
-    pub fn into_columns(self) -> impl Iterator<Item = ColumnValue> {
-        let (header_len, rest) = varint::read(&self.data);
-        let mut header_index = self.data.len() - rest.len();
-        let mut content_index = header_len as usize;
-
-        iter::from_fn(move || {
-            if header_index >= header_len as usize {
-                return None;
-            }
-
-            let (type_, rest) = varint::read(&self.data[header_index..]);
-            header_index = self.data.len() - rest.len();
-
-            let (value, rest) = ColumnValue::read(type_.into(), &self.data[content_index..]);
-            content_index = self.data.len() - rest.len();
-
+            let (value, count) = ColumnValue::read(ty, data);
+            data.consume_bytes(count);
             Some(value)
         })
     }
@@ -126,46 +105,43 @@ impl From<u64> for SerialType {
 }
 
 impl ColumnValue {
-    pub fn read(ty: SerialType, data: &[u8]) -> (Self, &[u8]) {
+    pub fn read(ty: SerialType, data: &[u8]) -> (Self, usize) {
         match ty {
-            SerialType::Null => (Self::Null, data),
-            SerialType::I8 => (Self::I8(data[0] as i8), &data[1..]),
-            SerialType::I16 => (
-                Self::I16(i16::from_be_bytes([data[0], data[1]])),
-                &data[2..],
-            ),
+            SerialType::Null => (Self::Null, 0),
+            SerialType::I8 => (Self::I8(data[0] as i8), 1),
+            SerialType::I16 => (Self::I16(i16::from_be_bytes([data[0], data[1]])), 2),
             SerialType::I24 => (
                 Self::I24(i32::from_be_bytes([0, data[0], data[1], data[2]])),
-                &data[3..],
+                3,
             ),
             SerialType::I32 => (
                 Self::I32(i32::from_be_bytes([data[0], data[1], data[2], data[3]])),
-                &data[4..],
+                4,
             ),
             SerialType::I48 => (
                 Self::I48(i64::from_be_bytes([
                     0, 0, data[0], data[1], data[2], data[3], data[4], data[5],
                 ])),
-                &data[6..],
+                6,
             ),
             SerialType::I64 => (
                 Self::I64(i64::from_be_bytes([
                     data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
                 ])),
-                &data[8..],
+                8,
             ),
             SerialType::F64 => (
                 Self::F64(f64::from_be_bytes([
                     data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
                 ])),
-                &data[8..],
+                8,
             ),
-            SerialType::Zero => (Self::Zero, data),
-            SerialType::One => (Self::One, data),
-            SerialType::Blob(n) => (Self::Blob(data[..n as usize].to_vec()), &data[n as usize..]),
+            SerialType::Zero => (Self::Zero, 0),
+            SerialType::One => (Self::One, 0),
+            SerialType::Blob(n) => (Self::Blob(data[..n as usize].to_vec()), n as usize),
             SerialType::Text(n) => (
                 Self::Text(String::from_utf8(data[..n as usize].to_vec()).unwrap()),
-                &data[n as usize..],
+                n as usize,
             ),
         }
     }
@@ -173,6 +149,8 @@ impl ColumnValue {
 
 #[cfg(test)]
 mod tests {
+    use crate::buf::ArcBuf;
+
     use super::*;
 
     const EXAMPLE_RECORD: &[u8] = &[
@@ -184,7 +162,8 @@ mod tests {
 
     #[test]
     fn test_read_types() {
-        let record = Record::from(EXAMPLE_RECORD);
+        let data: ArcBuf = EXAMPLE_RECORD.to_vec().into();
+        let record = Record::from(ArcBufSlice::from(data));
 
         let types = record.serial_types().collect::<Vec<_>>();
         assert_eq!(
@@ -201,7 +180,8 @@ mod tests {
 
     #[test]
     fn test_read_columns() {
-        let record = Record::from(EXAMPLE_RECORD);
+        let data: ArcBuf = EXAMPLE_RECORD.to_vec().into();
+        let record = Record::from(ArcBufSlice::from(data));
 
         let columns = record.columns().collect::<Vec<_>>();
         assert_eq!(

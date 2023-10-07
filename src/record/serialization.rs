@@ -21,7 +21,7 @@ impl<'de> IntoDeserializer<'de> for Record {
     type Deserializer = SeqDeserializer<Box<dyn Iterator<Item = ColumnValue> + 'de>, Error>;
 
     fn into_deserializer(self) -> Self::Deserializer {
-        SeqDeserializer::new(Box::new(self.into_columns()))
+        SeqDeserializer::new(Box::new(self.columns()))
     }
 }
 

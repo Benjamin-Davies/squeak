@@ -5,7 +5,7 @@ use zerocopy::{
     FromBytes,
 };
 
-use crate::{db::DB, header::HEADER_SIZE, row::Row, varint};
+use crate::{buf::ArcBufSlice, db::DB, header::HEADER_SIZE, row::Row, varint};
 
 use self::iter::TableRowsIterator;
 
@@ -16,7 +16,7 @@ pub struct BTreePage {
     db: DB,
     page_number: u32,
     header: BTreePageHeader,
-    data: Box<[u8]>,
+    data: ArcBufSlice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +53,7 @@ struct BTreePageHeader {
 }
 
 impl BTreePage {
-    pub(crate) fn new(db: DB, page_number: u32, data: &[u8]) -> BTreePage {
+    pub(crate) fn new(db: DB, page_number: u32, data: ArcBufSlice) -> BTreePage {
         let start = if page_number == 1 { HEADER_SIZE } else { 0 };
         let header = BTreePageHeader::read_from_prefix(&data[start..]).unwrap();
         header.validate();
@@ -62,7 +62,7 @@ impl BTreePage {
             db,
             page_number,
             header,
-            data: data.into(),
+            data,
         }
     }
 
@@ -80,26 +80,29 @@ impl BTreePage {
         U16::read_from_prefix(&self.data[start..]).unwrap().get()
     }
 
-    fn cell(&self, cell_index: u16) -> &[u8] {
+    fn cell(&self, cell_index: u16) -> ArcBufSlice {
         let ptr = self.cell_pointer(cell_index);
-        &self.data[ptr as usize..]
+        let mut data = self.data.clone();
+        data.consume_bytes(ptr as usize);
+        data
     }
 
-    pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (u64, &'_ [u8]) {
+    pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (u64, ArcBufSlice) {
         assert_eq!(self.page_type(), BTreePageType::LeafTable);
 
         // TODO: Handle cell overflow.
-        let cell = self.cell(cell_index);
-        let (payload_size, cell) = varint::read(cell);
-        let (row_id, cell) = varint::read(cell);
-        (row_id, &cell[..payload_size as usize])
+        let mut cell = self.cell(cell_index);
+        let payload_size = cell.consume_varint();
+        let row_id = cell.consume_varint();
+        cell.truncate(payload_size as usize);
+        (row_id, cell)
     }
 
     pub(crate) fn interior_table_cell(&self, cell_index: u16) -> (u32, u64) {
         assert_eq!(self.page_type(), BTreePageType::InteriorTable);
 
         let cell = self.cell(cell_index);
-        let left_child_page_number = U32::read_from_prefix(cell).unwrap().get();
+        let left_child_page_number = U32::read_from_prefix(&cell).unwrap().get();
         let (row_id, _) = varint::read(&cell[4..]);
 
         (left_child_page_number, row_id)
