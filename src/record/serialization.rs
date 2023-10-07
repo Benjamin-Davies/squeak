@@ -9,6 +9,8 @@ use serde::{
 
 use crate::record::{Record, SerialValue};
 
+use super::iter::SerialValueIterator;
+
 pub mod row_id {
     use serde::{Deserialize, Deserializer};
 
@@ -18,10 +20,10 @@ pub mod row_id {
 }
 
 impl<'de> IntoDeserializer<'de> for Record {
-    type Deserializer = SeqDeserializer<Box<dyn Iterator<Item = SerialValue> + 'de>, Error>;
+    type Deserializer = SeqDeserializer<SerialValueIterator, Error>;
 
     fn into_deserializer(self) -> Self::Deserializer {
-        SeqDeserializer::new(Box::new(self.columns()))
+        SeqDeserializer::new(self.into_values())
     }
 }
 

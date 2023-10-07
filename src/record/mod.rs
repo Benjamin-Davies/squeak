@@ -1,12 +1,16 @@
-use std::{fmt, iter};
+use std::fmt;
 
 use zerocopy::big_endian::{F64, I16, I32, I64};
 
-use crate::{buf::ArcBufSlice, varint};
+use crate::buf::ArcBufSlice;
 
-use self::ints::{I24, I48};
+use self::{
+    ints::{I24, I48},
+    iter::{SerialTypeIterator, SerialValueIterator},
+};
 
 pub mod ints;
+pub mod iter;
 pub mod serialization;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -53,37 +57,27 @@ impl From<ArcBufSlice> for Record {
 }
 
 impl Record {
-    pub fn serial_types(&self) -> impl Iterator<Item = SerialType> {
-        let mut data = self.data.clone();
-        let header_len = data.consume_varint();
-        let content_len = self.data.len() - header_len as usize;
-
-        iter::from_fn(move || {
-            if data.len() <= content_len {
-                return None;
-            }
-
-            let type_ = data.consume_varint();
-            Some(type_.into())
-        })
+    pub fn types(&self) -> SerialTypeIterator {
+        self.clone().into_types()
     }
 
-    pub fn columns(&self) -> impl Iterator<Item = SerialValue> {
-        let mut data = self.data.clone();
-        let (header_len, _) = varint::read(&data);
-        data.consume_bytes(header_len as usize);
+    pub fn values(&self) -> SerialValueIterator {
+        self.clone().into_values()
+    }
 
-        self.serial_types().scan(data, |data, ty| {
-            let value = SerialValue::consume(ty, data);
-            Some(value)
-        })
+    pub fn into_types(self) -> SerialTypeIterator {
+        SerialTypeIterator::new(self.data)
+    }
+
+    pub fn into_values(self) -> SerialValueIterator {
+        SerialValueIterator::new(self.data)
     }
 }
 
 impl fmt::Debug for Record {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Record")
-            .field("columns", &self.columns().collect::<Vec<_>>())
+            .field("columns", &self.values().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -147,7 +141,7 @@ mod tests {
         let data: ArcBuf = EXAMPLE_RECORD.to_vec().into();
         let record = Record::from(ArcBufSlice::from(data));
 
-        let types = record.serial_types().collect::<Vec<_>>();
+        let types = record.types().collect::<Vec<_>>();
         assert_eq!(
             types,
             vec![
@@ -165,7 +159,7 @@ mod tests {
         let data: ArcBuf = EXAMPLE_RECORD.to_vec().into();
         let record = Record::from(ArcBufSlice::from(data));
 
-        let columns = record.columns().collect::<Vec<_>>();
+        let columns = record.into_values().collect::<Vec<_>>();
         assert_eq!(
             columns,
             vec![
