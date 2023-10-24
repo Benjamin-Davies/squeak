@@ -1,24 +1,25 @@
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Result};
-use serde::Deserialize;
+use serde::{
+    de::{DeserializeOwned, IntoDeserializer},
+    Deserialize,
+};
 
-use crate::physical::{btree::BTreePage, db::DB};
+use crate::physical::{btree::BTreePage, buf::ArcBufSlice, db::DB};
 
-use self::row::Row;
+use self::record::Record;
 
-pub mod row;
+pub mod record;
 pub mod serialization;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Schema {
-    #[serde(skip)]
-    db: Option<DB>,
     #[serde(rename = "type")]
     pub type_: SchemaType,
     pub name: String,
     pub tbl_name: String,
-    pub rootpage: i64,
+    pub rootpage: u32,
     pub sql: String,
 }
 
@@ -31,51 +32,67 @@ pub enum SchemaType {
     Trigger,
 }
 
-#[derive(Debug, Clone)]
-pub struct Table<T> {
-    pub(crate) root: BTreePage,
-    pub(crate) _marker: PhantomData<T>,
+pub trait Table: DeserializeOwned {
+    const NAME: &'static str;
+
+    fn deserialize_row_id(&mut self, _row_id: u64) {}
 }
 
-impl Row for Schema {
-    fn set_db(&mut self, db: &DB) {
-        self.db = Some(db.clone());
+fn deserialize_row<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
+    let record = Record::from(buf);
+    let mut value = T::deserialize(record.into_deserializer())?;
+    value.deserialize_row_id(row_id);
+    Ok(value)
+}
+
+impl Table for Schema {
+    const NAME: &'static str = "sqlite_schema";
+}
+
+#[derive(Debug, Clone)]
+pub struct TableHandle<T> {
+    db: DB,
+    rootpage: u32,
+    _marker: PhantomData<T>,
+}
+
+impl<T: Table> TableHandle<T> {
+    pub fn iter(&self) -> Result<impl Iterator<Item = Result<T>>> {
+        let records = self.rootpage()?.into_entries();
+        let rows = records.map(|entry| deserialize_row(entry?));
+        Ok(rows)
+    }
+
+    pub fn get(&self, _row_id: u64) -> Result<Option<T>> {
+        todo!()
+    }
+
+    pub fn rootpage(&self) -> Result<BTreePage> {
+        self.db.btree_page(self.rootpage)
     }
 }
 
-impl Schema {
-    pub fn into_table<T>(self) -> Result<Table<T>> {
-        if self.type_ != SchemaType::Table {
-            return Err(anyhow!("Schema is not a table"));
-        }
-        // TODO: Validate that this table matches the type T.
-        let root = self.root()?;
+impl DB {
+    pub fn table<T: Table>(&self) -> Result<TableHandle<T>> {
+        let rootpage = if T::NAME == Schema::NAME {
+            1
+        } else {
+            let mut rootpage = None;
+            for schema in self.table::<Schema>()?.iter()? {
+                let schema = schema?;
+                if schema.name == T::NAME {
+                    rootpage = Some(schema.rootpage);
+                    break;
+                }
+            }
+            rootpage.ok_or_else(|| anyhow!("Table {} not found in schema", T::NAME))?
+        };
 
-        Ok(Table {
-            root,
+        Ok(TableHandle {
+            db: self.clone(),
+            rootpage,
             _marker: PhantomData,
         })
-    }
-
-    pub(crate) fn root(&self) -> Result<BTreePage> {
-        let db = self.db.as_ref().unwrap();
-        db.btree_page(self.rootpage as u32)
-    }
-}
-
-impl<T: Row> Table<T> {
-    pub fn iter(&self) -> impl Iterator<Item = Result<T>> + '_ {
-        self.root.rows()
-    }
-
-    pub fn find(&self, mut predicate: impl FnMut(&T) -> bool) -> Result<Option<T>> {
-        for row in self.iter() {
-            let row = row?;
-            if predicate(&row) {
-                return Ok(Some(row));
-            }
-        }
-        Ok(None)
     }
 }
 
@@ -88,9 +105,14 @@ mod tests {
     #[test]
     fn test_read_schema() {
         let db = DB::open("examples/empty.db").unwrap();
-        let root = db.btree_page(1).unwrap();
 
-        let rows = root.rows::<Schema>().collect::<Result<Vec<_>>>().unwrap();
+        let rows = db
+            .table::<Schema>()
+            .unwrap()
+            .iter()
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].type_, SchemaType::Table);
         assert_eq!(rows[0].name, "empty");

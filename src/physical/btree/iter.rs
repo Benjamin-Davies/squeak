@@ -1,31 +1,29 @@
-use std::{borrow::Cow, mem};
+use std::mem;
 
 use anyhow::Result;
 
-use crate::physical::{db::DB, record::Record};
+use crate::physical::buf::ArcBufSlice;
 
 use super::{BTreePage, BTreePageType};
 
-pub struct TableRowsIterator<'a> {
-    db: &'a DB,
-    page: Cow<'a, BTreePage>,
+pub struct BTreeEntries {
+    page: BTreePage,
     index: u16,
-    stack: Vec<(Cow<'a, BTreePage>, u16)>,
+    stack: Vec<(BTreePage, u16)>,
 }
 
-impl<'a> TableRowsIterator<'a> {
-    pub(super) fn new(page: &'a BTreePage) -> Self {
+impl BTreeEntries {
+    pub(super) fn new(page: BTreePage) -> Self {
         Self {
-            db: &page.db,
-            page: Cow::Borrowed(page),
+            page,
             index: 0,
             stack: Vec::new(),
         }
     }
 }
 
-impl<'a> Iterator for TableRowsIterator<'a> {
-    type Item = Result<(u64, Record)>;
+impl Iterator for BTreeEntries {
+    type Item = Result<(u64, ArcBufSlice)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -35,8 +33,8 @@ impl<'a> Iterator for TableRowsIterator<'a> {
                         let (page_number, _row_id) = self.page.interior_table_cell(self.index);
                         self.index += 1;
 
-                        let mut page = match self.db.btree_page(page_number) {
-                            Ok(page) => Cow::Owned(page),
+                        let mut page = match self.page.db.btree_page(page_number) {
+                            Ok(page) => page,
                             Err(err) => return Some(Err(err)),
                         };
 
@@ -48,7 +46,7 @@ impl<'a> Iterator for TableRowsIterator<'a> {
                         let (row_id, record) = self.page.leaf_table_cell(self.index);
                         self.index += 1;
 
-                        return Some(Ok((row_id, Record::from(record))));
+                        return Some(Ok((row_id, record)));
                     }
                     _ => todo!("{:?}", self.page.page_type()),
                 }

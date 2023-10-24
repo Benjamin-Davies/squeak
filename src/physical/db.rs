@@ -3,16 +3,12 @@ use std::{
     fmt,
     fs::File,
     io::{Read, Seek, SeekFrom},
-    marker::PhantomData,
     sync::{Arc, Mutex},
 };
 
 use anyhow::{anyhow, Result};
 
-use crate::{
-    physical::{btree::BTreePage, buf::ArcBuf, header::Header},
-    schema::{Schema, Table},
-};
+use crate::physical::{btree::BTreePage, buf::ArcBuf, header::Header};
 
 #[derive(Clone)]
 pub struct DB {
@@ -50,13 +46,6 @@ impl DB {
         let page = inner.page(page_number)?;
 
         Ok(BTreePage::new(self.clone(), page_number, page.into()))
-    }
-
-    pub fn schema(&self) -> Result<Table<Schema>> {
-        Ok(Table {
-            root: self.btree_page(1)?,
-            _marker: PhantomData,
-        })
     }
 }
 

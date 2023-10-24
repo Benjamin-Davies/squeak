@@ -1,16 +1,11 @@
-use anyhow::Result;
-use serde::de::IntoDeserializer;
 use zerocopy::{
     big_endian::{U16, U32},
     FromBytes,
 };
 
-use crate::{
-    physical::{buf::ArcBufSlice, db::DB, header::HEADER_SIZE, varint},
-    schema::row::Row,
-};
+use crate::physical::{buf::ArcBufSlice, db::DB, header::HEADER_SIZE, varint};
 
-use self::iter::TableRowsIterator;
+use self::iter::BTreeEntries;
 
 pub mod iter;
 
@@ -111,19 +106,8 @@ impl BTreePage {
         (left_child_page_number, row_id)
     }
 
-    pub fn rows_dyn(&self) -> TableRowsIterator<'_> {
-        TableRowsIterator::new(self)
-    }
-
-    pub fn rows<T: Row>(&self) -> impl Iterator<Item = Result<T>> + '_ {
-        self.rows_dyn().map(|res| {
-            res.map(|(row_id, record)| {
-                let mut row = T::deserialize(record.into_deserializer()).unwrap();
-                row.set_db(&self.db);
-                row.set_row_id(row_id);
-                row
-            })
-        })
+    pub(crate) fn into_entries(self) -> BTreeEntries {
+        BTreeEntries::new(self)
     }
 }
 
