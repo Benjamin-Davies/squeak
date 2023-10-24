@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use zerocopy::{
     big_endian::{U16, U32},
     FromBytes,
@@ -108,6 +109,43 @@ impl BTreePage {
 
     pub(crate) fn into_entries(self) -> BTreeEntries {
         BTreeEntries::new(self)
+    }
+
+    pub(crate) fn find_entry(self, row_id: u64) -> Result<Option<ArcBufSlice>> {
+        let mut page = self;
+        loop {
+            match page.page_type() {
+                BTreePageType::InteriorTable => {
+                    // TODO: binary search
+                    let mut next_page_index = 0;
+                    for index in 0..page.header.cell_count.get() {
+                        let (_page_number, current_id) = page.interior_table_cell(index);
+                        if current_id > row_id {
+                            break;
+                        } else {
+                            next_page_index = index + 1;
+                        }
+                    }
+                    let (page_number, _id) = page.interior_table_cell(next_page_index);
+                    page = page.db.btree_page(page_number)?;
+                }
+                BTreePageType::LeafTable => {
+                    // TODO: binary search
+                    let mut leaf_index = 0;
+                    for index in 0..page.header.cell_count.get() {
+                        let (current_id, _data) = page.leaf_table_cell(index);
+                        if current_id > row_id {
+                            break;
+                        } else {
+                            leaf_index = index + 1;
+                        }
+                    }
+                    let (_id, data) = page.leaf_table_cell(leaf_index);
+                    return Ok(Some(data));
+                }
+                ty => todo!("{ty:?}"),
+            }
+        }
     }
 }
 

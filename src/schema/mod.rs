@@ -1,4 +1,7 @@
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    ops::{Index, IndexMut},
+};
 
 use anyhow::{anyhow, Result};
 use serde::{
@@ -10,6 +13,7 @@ use crate::physical::{btree::BTreePage, buf::ArcBufSlice, db::DB};
 
 use self::record::Record;
 
+pub mod range;
 pub mod record;
 pub mod serialization;
 
@@ -61,10 +65,6 @@ impl<T: Table> TableHandle<T> {
         let records = self.rootpage()?.into_entries();
         let rows = records.map(|entry| deserialize_row(entry?));
         Ok(rows)
-    }
-
-    pub fn get(&self, _row_id: u64) -> Result<Option<T>> {
-        todo!()
     }
 
     pub fn rootpage(&self) -> Result<BTreePage> {
