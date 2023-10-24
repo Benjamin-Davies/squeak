@@ -7,9 +7,7 @@ use serde::{
     Deserializer,
 };
 
-use crate::record::{Record, SerialValue};
-
-use super::iter::SerialValueIterator;
+use crate::physical::record::{Record, SerialValue, iter::SerialValueIterator};
 
 pub mod row_id {
     use serde::{Deserialize, Deserializer};

@@ -1,4 +1,4 @@
-use crate::{buf::ArcBufSlice, varint};
+use crate::physical::{buf::ArcBufSlice, varint};
 
 use super::{SerialType, SerialValue};
 

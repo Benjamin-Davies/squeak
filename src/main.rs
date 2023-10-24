@@ -2,7 +2,10 @@ use std::env::args;
 
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
-use sqlite3_rs::{db::DB, record::serialization::row_id, row::Row, schema::Table};
+use sqlite3_rs::{
+    physical::db::DB,
+    schema::{row::Row, serialization::row_id, Table},
+};
 
 #[derive(Debug)]
 struct CrashDB {

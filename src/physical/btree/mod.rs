@@ -5,7 +5,10 @@ use zerocopy::{
     FromBytes,
 };
 
-use crate::{buf::ArcBufSlice, db::DB, header::HEADER_SIZE, row::Row, varint};
+use crate::{
+    physical::{buf::ArcBufSlice, db::DB, header::HEADER_SIZE, varint},
+    schema::row::Row,
+};
 
 use self::iter::TableRowsIterator;
 

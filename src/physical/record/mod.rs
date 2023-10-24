@@ -2,7 +2,7 @@ use std::fmt;
 
 use zerocopy::big_endian::{F64, I16, I32, I64};
 
-use crate::buf::ArcBufSlice;
+use crate::physical::buf::ArcBufSlice;
 
 use self::{
     ints::{I24, I48},
@@ -11,7 +11,6 @@ use self::{
 
 pub mod ints;
 pub mod iter;
-pub mod serialization;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Record {
@@ -125,7 +124,7 @@ impl SerialValue {
 
 #[cfg(test)]
 mod tests {
-    use crate::buf::ArcBuf;
+    use crate::physical::buf::ArcBuf;
 
     use super::*;
 

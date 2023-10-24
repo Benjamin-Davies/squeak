@@ -10,9 +10,7 @@ use std::{
 use anyhow::{anyhow, Result};
 
 use crate::{
-    btree::BTreePage,
-    buf::ArcBuf,
-    header::Header,
+    physical::{btree::BTreePage, buf::ArcBuf, header::Header},
     schema::{Schema, Table},
 };
 
@@ -105,7 +103,7 @@ impl fmt::Debug for DB {
 
 #[cfg(test)]
 mod tests {
-    use crate::btree::BTreePageType;
+    use crate::physical::btree::BTreePageType;
 
     use super::*;
 

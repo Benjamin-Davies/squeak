@@ -3,7 +3,12 @@ use std::marker::PhantomData;
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 
-use crate::{btree::BTreePage, db::DB, row::Row};
+use crate::physical::{btree::BTreePage, db::DB};
+
+use self::row::Row;
+
+pub mod row;
+pub mod serialization;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Schema {
@@ -78,7 +83,7 @@ impl<T: Row> Table<T> {
 mod tests {
     use super::*;
 
-    use crate::db::DB;
+    use crate::physical::db::DB;
 
     #[test]
     fn test_read_schema() {

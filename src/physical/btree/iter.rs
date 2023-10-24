@@ -2,7 +2,7 @@ use std::{borrow::Cow, mem};
 
 use anyhow::Result;
 
-use crate::{db::DB, record::Record};
+use crate::physical::{db::DB, record::Record};
 
 use super::{BTreePage, BTreePageType};
 

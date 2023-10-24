@@ -1,6 +1,7 @@
 use std::{fmt, mem, ops::Deref, sync::Arc};
 
-use crate::varint;
+use crate::physical::varint;
+
 
 pub type ArcBuf = Arc<[u8]>;
 

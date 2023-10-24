@@ -1,4 +1,4 @@
-pub(crate) fn read(bytes: &[u8]) -> (u64, usize) {
+pub fn read(bytes: &[u8]) -> (u64, usize) {
     let mut result = 0;
     let mut i = 0;
 
@@ -24,7 +24,7 @@ pub(crate) fn read(bytes: &[u8]) -> (u64, usize) {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
 
     #[test]
