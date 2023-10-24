@@ -34,17 +34,17 @@ fn main() {
     let crashes_table = db.table::<Crash>().unwrap();
     dbg!(&crashes_table);
 
-    let all_crashes = crashes_table
-        .iter()
-        .unwrap()
-        .collect::<Result<Vec<_>>>()
-        .unwrap();
-    dbg!(all_crashes.len());
-
     let first_10 = crashes_table
         .iter()
         .unwrap()
         .take(10)
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
+    dbg!(first_10);
+
+    let first_10 = crashes_table
+        .get(1..=10)
+        .unwrap()
         .collect::<Result<Vec<_>>>()
         .unwrap();
     dbg!(first_10);
