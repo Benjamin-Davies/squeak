@@ -1,4 +1,4 @@
-use std::{mem, ops::Range};
+use std::{cmp::Ordering, mem, ops::Range};
 
 use anyhow::Result;
 
@@ -14,10 +14,12 @@ pub struct BTreeTableEntries {
     max_row_id: Option<u64>,
 }
 
-pub struct BTreeIndexEntries {
+pub struct BTreeIndexEntries<F> {
     page: BTreePage,
     index: u16,
     stack: Vec<(BTreePage, u16)>,
+    // Used to see if we're inside of the specified range
+    comparator: F,
 }
 
 impl BTreeTableEntries {
@@ -124,17 +126,72 @@ impl Iterator for BTreeTableEntries {
     }
 }
 
-impl BTreeIndexEntries {
+impl BTreeIndexEntries<fn(ArcBufSlice) -> Result<Ordering>> {
     pub(super) fn new(page: BTreePage) -> Self {
         Self {
             page,
             index: 0,
             stack: Vec::new(),
+            comparator: |_| Ok(Ordering::Equal),
         }
     }
 }
 
-impl Iterator for BTreeIndexEntries {
+impl<F: Fn(ArcBufSlice) -> Result<Ordering>> BTreeIndexEntries<F> {
+    pub(super) fn with_range(page: BTreePage, comparator: F) -> Result<Self> {
+        let mut entries = Self {
+            page,
+            index: 0,
+            stack: Vec::new(),
+            comparator,
+        };
+
+        entries.seek_start()?;
+
+        Ok(entries)
+    }
+
+    fn seek_start(&mut self) -> Result<()> {
+        loop {
+            match self.page.page_type() {
+                BTreePageType::InteriorIndex => {
+                    // TODO: binary search
+                    let mut child_page_index = 0;
+                    for index in 0..self.page.header.cell_count.get() {
+                        let (_page_number, current_key) = self.page.interior_index_cell(index);
+                        if (self.comparator)(current_key)? == Ordering::Greater {
+                            break;
+                        } else {
+                            child_page_index = index + 1;
+                        }
+                    }
+
+                    let (child_page_number, _id) = self.page.interior_index_cell(child_page_index);
+                    let child_page = self.page.db.btree_page(child_page_number)?;
+                    let parent_page = mem::replace(&mut self.page, child_page);
+                    self.stack.push((parent_page, child_page_index + 1));
+                }
+                BTreePageType::LeafIndex => {
+                    // TODO: binary search
+                    let mut leaf_index = 0;
+                    for index in 0..self.page.header.cell_count.get() {
+                        let current_key = self.page.leaf_index_cell(index);
+                        if (self.comparator)(current_key)? == Ordering::Greater {
+                            break;
+                        } else {
+                            leaf_index = index;
+                        }
+                    }
+                    self.index = leaf_index;
+                    return Ok(());
+                }
+                ty => todo!("{ty:?}"),
+            }
+        }
+    }
+}
+
+impl<F: Fn(ArcBufSlice) -> Result<Ordering>> Iterator for BTreeIndexEntries<F> {
     type Item = Result<ArcBufSlice>;
 
     fn next(&mut self) -> Option<Self::Item> {

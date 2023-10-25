@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{cmp::Ordering, ops::Range};
 
 use anyhow::Result;
 use zerocopy::{
@@ -145,11 +145,18 @@ impl BTreePage {
         BTreeTableEntries::with_range(self, range)
     }
 
-    pub(crate) fn into_index_entries(self) -> BTreeIndexEntries {
+    pub(crate) fn into_index_entries(
+        self,
+    ) -> BTreeIndexEntries<fn(ArcBufSlice) -> Result<Ordering>> {
         BTreeIndexEntries::new(self)
     }
 
-    // TODO: Index entries range
+    pub(crate) fn into_index_entries_range<F: Fn(ArcBufSlice) -> Result<Ordering>>(
+        self,
+        comparator: F,
+    ) -> Result<BTreeIndexEntries<F>> {
+        BTreeIndexEntries::with_range(self, comparator)
+    }
 }
 
 impl BTreePageType {

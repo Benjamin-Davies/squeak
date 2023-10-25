@@ -40,7 +40,11 @@ pub trait Table: DeserializeOwned {
 }
 
 pub trait Index: DeserializeOwned {
+    type IndexedFields;
+
     const NAME: &'static str;
+
+    fn into_indexed_fields(self) -> Self::IndexedFields;
 }
 
 fn deserialize_table_row<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
@@ -81,7 +85,7 @@ impl<T: Table> TableHandle<T> {
         Ok(rows)
     }
 
-    pub fn rootpage(&self) -> Result<BTreePage> {
+    pub(crate) fn rootpage(&self) -> Result<BTreePage> {
         self.db.btree_page(self.rootpage)
     }
 }
@@ -93,7 +97,24 @@ impl<I: Index> IndexHandle<I> {
         Ok(rows)
     }
 
-    pub fn rootpage(&self) -> Result<BTreePage> {
+    pub fn get<'a>(&'a self, matching: &'a I::IndexedFields) -> Result<Option<I>>
+    where
+        I::IndexedFields: Ord,
+    {
+        let entry = self
+            .rootpage()?
+            .into_index_entries_range(|entry| {
+                // TODO: Do we need to deserialize everything?
+                let row = deserialize_index_row::<I>(entry)?;
+                let ordering = row.into_indexed_fields().cmp(matching);
+                Ok(ordering)
+            })?
+            .next();
+        let row = entry.map(|entry| deserialize_index_row(entry?));
+        row.transpose()
+    }
+
+    pub(crate) fn rootpage(&self) -> Result<BTreePage> {
         self.db.btree_page(self.rootpage)
     }
 }
@@ -156,11 +177,17 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
     struct StringPK {
         pub string: String,
-        pub key: u32,
+        pub key: u64,
     }
 
     impl Index for StringPK {
+        type IndexedFields = (String,);
+
         const NAME: &'static str = "sqlite_autoindex_strings_1";
+
+        fn into_indexed_fields(self) -> Self::IndexedFields {
+            (self.string,)
+        }
     }
 
     #[test]
@@ -215,6 +242,21 @@ mod tests {
                     key: 1,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn test_search_index() {
+        let db = DB::open("examples/string_index.db").unwrap();
+
+        let index = db.index::<StringPK>().unwrap();
+        let index_entry = index.get(&("foo".to_owned(),)).unwrap();
+        assert_eq!(
+            index_entry,
+            Some(StringPK {
+                string: "foo".to_owned(),
+                key: 1,
+            })
         );
     }
 }
