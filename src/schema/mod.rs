@@ -21,7 +21,7 @@ pub struct Schema {
     pub name: String,
     pub tbl_name: String,
     pub rootpage: u32,
-    pub sql: String,
+    pub sql: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -39,10 +39,20 @@ pub trait Table: DeserializeOwned {
     fn deserialize_row_id(&mut self, _row_id: u64) {}
 }
 
-fn deserialize_row<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
+pub trait Index: DeserializeOwned {
+    const NAME: &'static str;
+}
+
+fn deserialize_table_row<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
     let record = Record::from(buf);
     let mut value = T::deserialize(record.into_deserializer())?;
     value.deserialize_row_id(row_id);
+    Ok(value)
+}
+
+fn deserialize_index_row<I: Index>(buf: ArcBufSlice) -> Result<I> {
+    let record = Record::from(buf);
+    let value = I::deserialize(record.into_deserializer())?;
     Ok(value)
 }
 
@@ -57,10 +67,29 @@ pub struct TableHandle<T> {
     _marker: PhantomData<T>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IndexHandle<I> {
+    db: DB,
+    rootpage: u32,
+    _marker: PhantomData<I>,
+}
+
 impl<T: Table> TableHandle<T> {
     pub fn iter(&self) -> Result<impl Iterator<Item = Result<T>>> {
-        let records = self.rootpage()?.into_entries();
-        let rows = records.map(|entry| deserialize_row(entry?));
+        let records = self.rootpage()?.into_table_entries();
+        let rows = records.map(|entry| deserialize_table_row(entry?));
+        Ok(rows)
+    }
+
+    pub fn rootpage(&self) -> Result<BTreePage> {
+        self.db.btree_page(self.rootpage)
+    }
+}
+
+impl<I: Index> IndexHandle<I> {
+    pub fn iter(&self) -> Result<impl Iterator<Item = Result<I>>> {
+        let records = self.rootpage()?.into_index_entries();
+        let rows = records.map(|entry| deserialize_index_row(entry?));
         Ok(rows)
     }
 
@@ -77,7 +106,7 @@ impl DB {
             let mut rootpage = None;
             for schema in self.table::<Schema>()?.iter()? {
                 let schema = schema?;
-                if schema.name == T::NAME {
+                if schema.type_ == SchemaType::Table && schema.name == T::NAME {
                     rootpage = Some(schema.rootpage);
                     break;
                 }
@@ -91,6 +120,24 @@ impl DB {
             _marker: PhantomData,
         })
     }
+
+    pub fn index<I: Index>(&self) -> Result<IndexHandle<I>> {
+        let mut rootpage = None;
+        for schema in self.table::<Schema>()?.iter()? {
+            let schema = schema?;
+            if schema.type_ == SchemaType::Index && schema.name == I::NAME {
+                rootpage = Some(schema.rootpage);
+                break;
+            }
+        }
+        let rootpage = rootpage.ok_or_else(|| anyhow!("Index {} not found in schema", I::NAME))?;
+
+        Ok(IndexHandle {
+            db: self.clone(),
+            rootpage,
+            _marker: PhantomData,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -98,6 +145,23 @@ mod tests {
     use super::*;
 
     use crate::physical::db::DB;
+
+    #[derive(Debug, Clone, Deserialize)]
+    struct Empty;
+
+    impl Table for Empty {
+        const NAME: &'static str = "empty";
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+    struct StringPK {
+        pub string: String,
+        pub key: u32,
+    }
+
+    impl Index for StringPK {
+        const NAME: &'static str = "sqlite_autoindex_strings_1";
+    }
 
     #[test]
     fn test_read_schema() {
@@ -116,8 +180,41 @@ mod tests {
         assert_eq!(rows[0].tbl_name, "empty");
         assert_eq!(rows[0].rootpage, 2);
         assert_eq!(
-            rows[0].sql,
+            rows[0].sql.as_ref().unwrap(),
             "CREATE TABLE empty (id integer not null primary key)"
+        );
+    }
+
+    #[test]
+    fn test_read_table() {
+        let db = DB::open("examples/empty.db").unwrap();
+
+        let row_count = db.table::<Empty>().unwrap().iter().unwrap().count();
+        assert_eq!(row_count, 0);
+    }
+
+    #[test]
+    fn test_read_index() {
+        let db = DB::open("examples/string_index.db").unwrap();
+
+        let index = db.index::<StringPK>().unwrap();
+        let rows = index.iter().unwrap().collect::<Result<Vec<_>>>().unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                StringPK {
+                    string: "bar".to_owned(),
+                    key: 2,
+                },
+                StringPK {
+                    string: "baz".to_owned(),
+                    key: 3,
+                },
+                StringPK {
+                    string: "foo".to_owned(),
+                    key: 1,
+                },
+            ]
         );
     }
 }

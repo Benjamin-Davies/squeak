@@ -172,7 +172,11 @@ impl<'de> Deserializer<'de> for SerialValue {
     where
         V: de::Visitor<'de>,
     {
-        self.deserialize_any(visitor)
+        if let SerialValue::Null = self {
+            visitor.visit_none()
+        } else {
+            visitor.visit_some(self)
+        }
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>

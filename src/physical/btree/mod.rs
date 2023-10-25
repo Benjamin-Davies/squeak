@@ -8,7 +8,7 @@ use zerocopy::{
 
 use crate::physical::{buf::ArcBufSlice, db::DB, header::HEADER_SIZE, varint};
 
-use self::iter::BTreeEntries;
+use self::iter::{BTreeIndexEntries, BTreeTableEntries};
 
 pub mod iter;
 
@@ -72,6 +72,7 @@ impl BTreePage {
     }
 
     fn cell_pointer(&self, cell_index: u16) -> u16 {
+        assert!(cell_index < self.header.cell_count.get());
         let start = if self.page_number == 1 {
             HEADER_SIZE
         } else {
@@ -91,11 +92,12 @@ impl BTreePage {
     pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (u64, ArcBufSlice) {
         assert_eq!(self.page_type(), BTreePageType::LeafTable);
 
-        // TODO: Handle cell overflow.
+        // TODO: Handle when a cell overflows onto a separate page.
         let mut cell = self.cell(cell_index);
         let payload_size = cell.consume_varint();
         let row_id = cell.consume_varint();
         cell.truncate(payload_size as usize);
+
         (row_id, cell)
     }
 
@@ -109,13 +111,45 @@ impl BTreePage {
         (left_child_page_number, row_id)
     }
 
-    pub(crate) fn into_entries(self) -> BTreeEntries {
-        BTreeEntries::new(self)
+    pub(crate) fn leaf_index_cell(&self, cell_index: u16) -> ArcBufSlice {
+        assert_eq!(self.page_type(), BTreePageType::LeafIndex);
+
+        // TODO: Handle when a cell overflows onto a separate page.
+        let mut cell = self.cell(cell_index);
+        let payload_size = cell.consume_varint();
+        cell.truncate(payload_size as usize);
+
+        cell
     }
 
-    pub(crate) fn into_entries_range(self, range: Range<Option<u64>>) -> Result<BTreeEntries> {
-        BTreeEntries::with_range(self, range)
+    pub(crate) fn interior_index_cell(&self, cell_index: u16) -> (u32, ArcBufSlice) {
+        assert_eq!(self.page_type(), BTreePageType::InteriorIndex);
+
+        // TODO: Handle when a cell overflows onto a separate page.
+        let mut cell = self.cell(cell_index);
+        let left_child_page_number = U32::read_from_prefix(&cell).unwrap().get();
+        let payload_size = cell.consume_varint();
+        cell.truncate(payload_size as usize);
+
+        (left_child_page_number, cell)
     }
+
+    pub(crate) fn into_table_entries(self) -> BTreeTableEntries {
+        BTreeTableEntries::new(self)
+    }
+
+    pub(crate) fn into_table_entries_range(
+        self,
+        range: Range<Option<u64>>,
+    ) -> Result<BTreeTableEntries> {
+        BTreeTableEntries::with_range(self, range)
+    }
+
+    pub(crate) fn into_index_entries(self) -> BTreeIndexEntries {
+        BTreeIndexEntries::new(self)
+    }
+
+    // TODO: Index entries range
 }
 
 impl BTreePageType {

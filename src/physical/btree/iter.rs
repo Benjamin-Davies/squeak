@@ -6,7 +6,7 @@ use crate::physical::buf::ArcBufSlice;
 
 use super::{BTreePage, BTreePageType};
 
-pub struct BTreeEntries {
+pub struct BTreeTableEntries {
     page: BTreePage,
     index: u16,
     stack: Vec<(BTreePage, u16)>,
@@ -14,7 +14,13 @@ pub struct BTreeEntries {
     max_row_id: Option<u64>,
 }
 
-impl BTreeEntries {
+pub struct BTreeIndexEntries {
+    page: BTreePage,
+    index: u16,
+    stack: Vec<(BTreePage, u16)>,
+}
+
+impl BTreeTableEntries {
     pub(super) fn new(page: BTreePage) -> Self {
         Self {
             page,
@@ -75,7 +81,7 @@ impl BTreeEntries {
     }
 }
 
-impl Iterator for BTreeEntries {
+impl Iterator for BTreeTableEntries {
     type Item = Result<(u64, ArcBufSlice)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -106,6 +112,53 @@ impl Iterator for BTreeEntries {
                         }
 
                         return Some(Ok((row_id, record)));
+                    }
+                    _ => todo!("{:?}", self.page.page_type()),
+                }
+            } else if let Some(popped) = self.stack.pop() {
+                (self.page, self.index) = popped;
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
+impl BTreeIndexEntries {
+    pub(super) fn new(page: BTreePage) -> Self {
+        Self {
+            page,
+            index: 0,
+            stack: Vec::new(),
+        }
+    }
+}
+
+impl Iterator for BTreeIndexEntries {
+    type Item = Result<ArcBufSlice>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.index < self.page.header.cell_count.get() {
+                match self.page.page_type() {
+                    BTreePageType::InteriorIndex => {
+                        let (page_number, _payload) = self.page.interior_index_cell(self.index);
+                        self.index += 1;
+
+                        let mut page = match self.page.db.btree_page(page_number) {
+                            Ok(page) => page,
+                            Err(err) => return Some(Err(err)),
+                        };
+
+                        mem::swap(&mut self.page, &mut page);
+                        self.stack.push((page, self.index));
+                        self.index = 0;
+                    }
+                    BTreePageType::LeafIndex => {
+                        let record = self.page.leaf_index_cell(self.index);
+                        self.index += 1;
+
+                        return Some(Ok(record));
                     }
                     _ => todo!("{:?}", self.page.page_type()),
                 }

@@ -7,9 +7,9 @@ use std::{
 
 use anyhow::Result;
 
-use crate::physical::{btree::iter::BTreeEntries, buf::ArcBufSlice};
+use crate::physical::{btree::iter::BTreeTableEntries, buf::ArcBufSlice};
 
-use super::{deserialize_row, Table, TableHandle};
+use super::{deserialize_table_row, Table, TableHandle};
 
 pub trait TableRange<T: Table> {
     type Output;
@@ -17,7 +17,7 @@ pub trait TableRange<T: Table> {
     fn range(self, table: &TableHandle<T>) -> Result<Self::Output>;
 }
 
-type MappedTableEntries<T> = Map<BTreeEntries, fn(Result<(u64, ArcBufSlice)>) -> Result<T>>;
+type MappedTableEntries<T> = Map<BTreeTableEntries, fn(Result<(u64, ArcBufSlice)>) -> Result<T>>;
 
 fn table_range_impl<T: Table>(
     table: &TableHandle<T>,
@@ -34,8 +34,8 @@ fn table_range_impl<T: Table>(
         Bound::Unbounded => None,
     };
 
-    let records = table.rootpage()?.into_entries_range(start..end)?;
-    let rows = records.map::<_, fn(_) -> _>(|record| deserialize_row(record?));
+    let records = table.rootpage()?.into_table_entries_range(start..end)?;
+    let rows = records.map::<_, fn(_) -> _>(|record| deserialize_table_row(record?));
     Ok(rows)
 }
 
