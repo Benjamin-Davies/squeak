@@ -47,6 +47,10 @@ pub trait Index: DeserializeOwned {
     fn into_indexed_fields(self) -> Self::IndexedFields;
 }
 
+pub trait IndexOf<T: Table>: Index {
+    fn get_row_id(&self) -> u64;
+}
+
 fn deserialize_table_row<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
     let record = Record::from(buf);
     let mut value = T::deserialize(record.into_deserializer())?;
@@ -83,6 +87,19 @@ impl<T: Table> TableHandle<T> {
         let records = self.rootpage()?.into_table_entries();
         let rows = records.map(|entry| deserialize_table_row(entry?));
         Ok(rows)
+    }
+
+    pub fn get_with_index<I: IndexOf<T>>(&self, matching: &I::IndexedFields) -> Result<Option<T>>
+    where
+        I::IndexedFields: Ord,
+    {
+        let index = self.db.index::<I>()?;
+        let entry = index.get(matching)?;
+        let row = entry
+            .map(|entry| self.get(entry.get_row_id()))
+            .transpose()?
+            .flatten();
+        Ok(row)
     }
 
     pub(crate) fn rootpage(&self) -> Result<BTreePage> {
@@ -174,19 +191,34 @@ mod tests {
         const NAME: &'static str = "empty";
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+    struct Strings {
+        pub string: String,
+    }
+
+    impl Table for Strings {
+        const NAME: &'static str = "strings";
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-    struct StringPK {
+    struct StringsPK {
         pub string: String,
         pub key: u64,
     }
 
-    impl Index for StringPK {
+    impl Index for StringsPK {
         type IndexedFields = (String,);
 
         const NAME: &'static str = "sqlite_autoindex_strings_1";
 
         fn into_indexed_fields(self) -> Self::IndexedFields {
             (self.string,)
+        }
+    }
+
+    impl IndexOf<Strings> for StringsPK {
+        fn get_row_id(&self) -> u64 {
+            self.key
         }
     }
 
@@ -224,20 +256,20 @@ mod tests {
     fn test_read_index() {
         let db = DB::open("examples/string_index.db").unwrap();
 
-        let index = db.index::<StringPK>().unwrap();
+        let index = db.index::<StringsPK>().unwrap();
         let rows = index.iter().unwrap().collect::<Result<Vec<_>>>().unwrap();
         assert_eq!(
             rows,
             vec![
-                StringPK {
+                StringsPK {
                     string: "bar".to_owned(),
                     key: 2,
                 },
-                StringPK {
+                StringsPK {
                     string: "baz".to_owned(),
                     key: 3,
                 },
-                StringPK {
+                StringsPK {
                     string: "foo".to_owned(),
                     key: 1,
                 },
@@ -249,13 +281,29 @@ mod tests {
     fn test_search_index() {
         let db = DB::open("examples/string_index.db").unwrap();
 
-        let index = db.index::<StringPK>().unwrap();
+        let index = db.index::<StringsPK>().unwrap();
         let index_entry = index.get(&("foo".to_owned(),)).unwrap();
         assert_eq!(
             index_entry,
-            Some(StringPK {
+            Some(StringsPK {
                 string: "foo".to_owned(),
                 key: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn test_search_with_index() {
+        let db = DB::open("examples/string_index.db").unwrap();
+
+        let table = db.table::<Strings>().unwrap();
+        let entry = table
+            .get_with_index::<StringsPK>(&("bar".to_owned(),))
+            .unwrap();
+        assert_eq!(
+            entry,
+            Some(Strings {
+                string: "bar".to_owned(),
             })
         );
     }
