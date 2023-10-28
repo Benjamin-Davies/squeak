@@ -40,7 +40,7 @@ pub trait Table: DeserializeOwned {
 }
 
 pub trait Index: DeserializeOwned {
-    type IndexedFields;
+    type IndexedFields: Ord;
 
     const NAME: &'static str;
 
@@ -51,14 +51,14 @@ pub trait IndexOf<T: Table>: Index {
     fn get_row_id(&self) -> u64;
 }
 
-fn deserialize_table_row<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
+fn deserialize_record_with_row_id<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
     let record = Record::from(buf);
     let mut value = T::deserialize(record.into_deserializer())?;
     value.deserialize_row_id(row_id);
     Ok(value)
 }
 
-fn deserialize_index_row<I: Index>(buf: ArcBufSlice) -> Result<I> {
+fn deserialize_record<I: DeserializeOwned>(buf: ArcBufSlice) -> Result<I> {
     let record = Record::from(buf);
     let value = I::deserialize(record.into_deserializer())?;
     Ok(value)
@@ -84,9 +84,7 @@ pub struct IndexHandle<I> {
 
 impl<T: Table> TableHandle<T> {
     pub fn iter(&self) -> Result<impl Iterator<Item = Result<T>>> {
-        let records = self.rootpage()?.into_table_entries();
-        let rows = records.map(|entry| deserialize_table_row(entry?));
-        Ok(rows)
+        self.get(..)
     }
 
     pub fn get_with_index<I: IndexOf<T>>(&self, matching: &I::IndexedFields) -> Result<Option<T>>
@@ -108,27 +106,11 @@ impl<T: Table> TableHandle<T> {
 }
 
 impl<I: Index> IndexHandle<I> {
-    pub fn iter(&self) -> Result<impl Iterator<Item = Result<I>>> {
-        let records = self.rootpage()?.into_index_entries();
-        let rows = records.map(|entry| deserialize_index_row(entry?));
-        Ok(rows)
-    }
-
-    pub fn get<'a>(&'a self, matching: &'a I::IndexedFields) -> Result<Option<I>>
+    pub fn iter(&self) -> Result<impl Iterator<Item = Result<I>>>
     where
         I::IndexedFields: Ord,
     {
-        let entry = self
-            .rootpage()?
-            .into_index_entries_range(|entry| {
-                // TODO: Do we need to deserialize everything?
-                let row = deserialize_index_row::<I>(entry)?;
-                let ordering = row.into_indexed_fields().cmp(matching);
-                Ok(ordering)
-            })?
-            .next();
-        let row = entry.map(|entry| deserialize_index_row(entry?));
-        row.transpose()
+        self.get(..)
     }
 
     pub(crate) fn rootpage(&self) -> Result<BTreePage> {

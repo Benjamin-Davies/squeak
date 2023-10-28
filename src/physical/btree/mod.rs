@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, ops::Range};
+use std::ops::Range;
 
 use anyhow::Result;
 use zerocopy::{
@@ -134,10 +134,6 @@ impl BTreePage {
         (left_child_page_number, cell)
     }
 
-    pub(crate) fn into_table_entries(self) -> BTreeTableEntries {
-        BTreeTableEntries::new(self)
-    }
-
     pub(crate) fn into_table_entries_range(
         self,
         range: Range<Option<u64>>,
@@ -145,16 +141,10 @@ impl BTreePage {
         BTreeTableEntries::with_range(self, range)
     }
 
-    pub(crate) fn into_index_entries(
+    pub(crate) fn into_index_entries_range<C: PartialOrd<ArcBufSlice>>(
         self,
-    ) -> BTreeIndexEntries<fn(ArcBufSlice) -> Result<Ordering>> {
-        BTreeIndexEntries::new(self)
-    }
-
-    pub(crate) fn into_index_entries_range<F: Fn(ArcBufSlice) -> Result<Ordering>>(
-        self,
-        comparator: F,
-    ) -> Result<BTreeIndexEntries<F>> {
+        comparator: C,
+    ) -> Result<BTreeIndexEntries<C>> {
         BTreeIndexEntries::with_range(self, comparator)
     }
 }
