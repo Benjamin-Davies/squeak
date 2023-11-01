@@ -5,6 +5,7 @@ use serde::{
     de::{DeserializeOwned, IntoDeserializer},
     Deserialize,
 };
+use squeak_macros::Table;
 
 use crate::physical::{btree::BTreePage, buf::ArcBufSlice, db::DB};
 
@@ -14,7 +15,8 @@ pub mod range;
 pub mod record;
 pub mod serialization;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Table)]
+#[table(name = "sqlite_schema")]
 pub struct Schema {
     #[serde(rename = "type")]
     pub type_: SchemaType,
@@ -64,13 +66,6 @@ fn deserialize_record<T: DeserializeOwned>(buf: ArcBufSlice) -> Result<T> {
     let value = T::deserialize(record.into_deserializer())?;
     Ok(value)
 }
-
-impl Table for Schema {
-    const TYPE: SchemaType = SchemaType::Table;
-    const NAME: &'static str = "sqlite_schema";
-}
-
-impl WithRowId for Schema {}
 
 #[derive(Debug)]
 pub struct TableHandle<T> {
