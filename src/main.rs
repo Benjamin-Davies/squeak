@@ -2,7 +2,7 @@ use std::env::args;
 
 use anyhow::Result;
 use serde::Deserialize;
-use sqlite3_rs::{
+use squeak::{
     physical::db::DB,
     schema::{serialization::row_id, SchemaType, Table, WithRowId},
 };
