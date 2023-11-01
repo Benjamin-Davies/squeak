@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use sqlite3_rs::{
     physical::db::DB,
-    schema::{serialization::row_id, Table},
+    schema::{serialization::row_id, SchemaType, Table, WithRowId},
 };
 
 #[derive(Debug, Deserialize)]
@@ -19,8 +19,11 @@ struct Crash {
 }
 
 impl Table for Crash {
+    const TYPE: SchemaType = SchemaType::Table;
     const NAME: &'static str = "crashes";
+}
 
+impl WithRowId for Crash {
     fn deserialize_row_id(&mut self, row_id: u64) {
         self.id = row_id;
     }

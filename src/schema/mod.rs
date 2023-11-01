@@ -34,83 +34,74 @@ pub enum SchemaType {
 }
 
 pub trait Table: DeserializeOwned {
+    const TYPE: SchemaType;
     const NAME: &'static str;
+}
 
+pub trait WithRowId: Table {
     fn deserialize_row_id(&mut self, _row_id: u64) {}
 }
 
-pub trait Index: DeserializeOwned {
-    type IndexedFields: Ord;
+pub trait WithoutRowId: Table {
+    type SortedFields: Ord;
 
-    const NAME: &'static str;
-
-    fn into_indexed_fields(self) -> Self::IndexedFields;
+    fn into_sorted_fields(self) -> Self::SortedFields;
 }
 
-pub trait IndexOf<T: Table>: Index {
+pub trait Index<T: Table>: WithoutRowId {
     fn get_row_id(&self) -> u64;
 }
 
-fn deserialize_record_with_row_id<T: Table>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
+fn deserialize_record_with_row_id<T: WithRowId>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
     let record = Record::from(buf);
     let mut value = T::deserialize(record.into_deserializer())?;
     value.deserialize_row_id(row_id);
     Ok(value)
 }
 
-fn deserialize_record<I: DeserializeOwned>(buf: ArcBufSlice) -> Result<I> {
+fn deserialize_record<T: DeserializeOwned>(buf: ArcBufSlice) -> Result<T> {
     let record = Record::from(buf);
-    let value = I::deserialize(record.into_deserializer())?;
+    let value = T::deserialize(record.into_deserializer())?;
     Ok(value)
 }
 
 impl Table for Schema {
+    const TYPE: SchemaType = SchemaType::Table;
     const NAME: &'static str = "sqlite_schema";
 }
 
-#[derive(Debug, Clone)]
+impl WithRowId for Schema {}
+
+#[derive(Debug)]
 pub struct TableHandle<T> {
     db: DB,
     rootpage: u32,
     _marker: PhantomData<T>,
 }
 
-#[derive(Debug, Clone)]
-pub struct IndexHandle<I> {
-    db: DB,
-    rootpage: u32,
-    _marker: PhantomData<I>,
+impl<T> Clone for TableHandle<T> {
+    fn clone(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            rootpage: self.rootpage,
+            _marker: PhantomData,
+        }
+    }
 }
 
 impl<T: Table> TableHandle<T> {
-    pub fn iter(&self) -> Result<impl Iterator<Item = Result<T>>> {
-        self.get(..)
-    }
-
-    pub fn get_with_index<I: IndexOf<T>>(&self, matching: &I::IndexedFields) -> Result<Option<T>>
+    pub fn get_with_index<I: Index<T>>(&self, matching: &I::SortedFields) -> Result<Option<T>>
     where
-        I::IndexedFields: Ord,
+        // TODO: Use indexes with non-rowid tables
+        T: WithRowId,
     {
-        let index = self.db.index::<I>()?;
+        let index = self.db.table::<I>()?;
         let entry = index.get(matching)?;
         let row = entry
             .map(|entry| self.get(entry.get_row_id()))
             .transpose()?
             .flatten();
         Ok(row)
-    }
-
-    pub(crate) fn rootpage(&self) -> Result<BTreePage> {
-        self.db.btree_page(self.rootpage)
-    }
-}
-
-impl<I: Index> IndexHandle<I> {
-    pub fn iter(&self) -> Result<impl Iterator<Item = Result<I>>>
-    where
-        I::IndexedFields: Ord,
-    {
-        self.get(..)
     }
 
     pub(crate) fn rootpage(&self) -> Result<BTreePage> {
@@ -126,7 +117,7 @@ impl DB {
             let mut rootpage = None;
             for schema in self.table::<Schema>()?.iter()? {
                 let schema = schema?;
-                if schema.type_ == SchemaType::Table && schema.name == T::NAME {
+                if schema.type_ == T::TYPE && schema.name == T::NAME {
                     rootpage = Some(schema.rootpage);
                     break;
                 }
@@ -135,24 +126,6 @@ impl DB {
         };
 
         Ok(TableHandle {
-            db: self.clone(),
-            rootpage,
-            _marker: PhantomData,
-        })
-    }
-
-    pub fn index<I: Index>(&self) -> Result<IndexHandle<I>> {
-        let mut rootpage = None;
-        for schema in self.table::<Schema>()?.iter()? {
-            let schema = schema?;
-            if schema.type_ == SchemaType::Index && schema.name == I::NAME {
-                rootpage = Some(schema.rootpage);
-                break;
-            }
-        }
-        let rootpage = rootpage.ok_or_else(|| anyhow!("Index {} not found in schema", I::NAME))?;
-
-        Ok(IndexHandle {
             db: self.clone(),
             rootpage,
             _marker: PhantomData,
@@ -170,8 +143,11 @@ mod tests {
     struct Empty;
 
     impl Table for Empty {
+        const TYPE: SchemaType = SchemaType::Table;
         const NAME: &'static str = "empty";
     }
+
+    impl WithRowId for Empty {}
 
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
     struct Strings {
@@ -179,8 +155,11 @@ mod tests {
     }
 
     impl Table for Strings {
+        const TYPE: SchemaType = SchemaType::Table;
         const NAME: &'static str = "strings";
     }
+
+    impl WithRowId for Strings {}
 
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
     struct StringsPK {
@@ -188,17 +167,20 @@ mod tests {
         pub key: u64,
     }
 
-    impl Index for StringsPK {
-        type IndexedFields = (String,);
-
+    impl Table for StringsPK {
+        const TYPE: SchemaType = SchemaType::Index;
         const NAME: &'static str = "sqlite_autoindex_strings_1";
+    }
 
-        fn into_indexed_fields(self) -> Self::IndexedFields {
+    impl WithoutRowId for StringsPK {
+        type SortedFields = (String,);
+
+        fn into_sorted_fields(self) -> Self::SortedFields {
             (self.string,)
         }
     }
 
-    impl IndexOf<Strings> for StringsPK {
+    impl Index<Strings> for StringsPK {
         fn get_row_id(&self) -> u64 {
             self.key
         }
@@ -238,8 +220,12 @@ mod tests {
     fn test_read_index() {
         let db = DB::open("examples/string_index.db").unwrap();
 
-        let index = db.index::<StringsPK>().unwrap();
-        let rows = index.iter().unwrap().collect::<Result<Vec<_>>>().unwrap();
+        let index = db.table::<StringsPK>().unwrap();
+        let rows = index
+            .iter_without_row_id()
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         assert_eq!(
             rows,
             vec![
@@ -263,7 +249,7 @@ mod tests {
     fn test_search_index() {
         let db = DB::open("examples/string_index.db").unwrap();
 
-        let index = db.index::<StringsPK>().unwrap();
+        let index = db.table::<StringsPK>().unwrap();
         let index_entry = index.get(&("foo".to_owned(),)).unwrap();
         assert_eq!(
             index_entry,

@@ -2,9 +2,7 @@ use std::{
     cmp::Ordering,
     iter::Map,
     marker::PhantomData,
-    ops::{
-        Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
-    },
+    ops::{Bound, Range, RangeBounds, RangeFrom, RangeInclusive, RangeTo, RangeToInclusive},
 };
 
 use anyhow::Result;
@@ -15,7 +13,7 @@ use crate::physical::{
 };
 
 use super::{
-    deserialize_record, deserialize_record_with_row_id, Index, IndexHandle, Table, TableHandle,
+    deserialize_record, deserialize_record_with_row_id, Table, TableHandle, WithRowId, WithoutRowId,
 };
 
 pub trait TableRange<T: Table> {
@@ -24,23 +22,18 @@ pub trait TableRange<T: Table> {
     fn range(self, table: &TableHandle<T>) -> Result<Self::Output>;
 }
 
-pub trait IndexRange<T: Index> {
-    type Output;
-
-    fn range(self, index: &IndexHandle<T>) -> Result<Self::Output>;
-}
-
 pub struct IndexComparator<I, T> {
     inner: T,
     _marker: PhantomData<I>,
 }
 
+struct EqComparator;
+
 type MappedTableEntries<T> = Map<BTreeTableEntries, fn(Result<(u64, ArcBufSlice)>) -> Result<T>>;
 
-type MappedIndexEntries<T, F = fn(ArcBufSlice) -> Ordering> =
-    Map<BTreeIndexEntries<F>, fn(Result<ArcBufSlice>) -> Result<T>>;
+type MappedIndexEntries<T, C> = Map<BTreeIndexEntries<C>, fn(Result<ArcBufSlice>) -> Result<T>>;
 
-fn table_range_impl<T: Table>(
+fn table_range_impl<T: WithRowId>(
     table: &TableHandle<T>,
     range: impl RangeBounds<u64>,
 ) -> Result<MappedTableEntries<T>> {
@@ -57,6 +50,15 @@ fn table_range_impl<T: Table>(
 
     let records = table.rootpage()?.into_table_entries_range(start..end)?;
     let rows = records.map::<_, fn(_) -> _>(|record| deserialize_record_with_row_id(record?));
+    Ok(rows)
+}
+
+fn index_range_impl<I: WithoutRowId, C: PartialOrd<ArcBufSlice>>(
+    index: &TableHandle<I>,
+    comparator: C,
+) -> Result<MappedIndexEntries<I, C>> {
+    let records = index.rootpage()?.into_index_entries_range(comparator)?;
+    let rows = records.map::<_, fn(_) -> _>(|record| deserialize_record(record?));
     Ok(rows)
 }
 
@@ -92,12 +94,12 @@ fn range_cmp<'a, T: Ord + 'a>(range: &impl RangeBounds<&'a T>, other: &T) -> Ord
     Ordering::Equal
 }
 
-fn index_cmp_impl<'a, I: Index + 'a>(
-    range: &impl RangeBounds<&'a I::IndexedFields>,
+fn index_cmp_impl<'a, I: WithoutRowId + 'a>(
+    range: &impl RangeBounds<&'a I::SortedFields>,
     record: &ArcBufSlice,
 ) -> Option<Ordering> {
     let row = deserialize_record::<I>(record.clone()).ok()?;
-    let indexed_fields = row.into_indexed_fields();
+    let indexed_fields = row.into_sorted_fields();
 
     Some(range_cmp(range, &indexed_fields))
 }
@@ -105,7 +107,7 @@ fn index_cmp_impl<'a, I: Index + 'a>(
 macro_rules! impl_for_range_types {
     ($($range:ident),*) => {
         $(
-            impl<T: Table> TableRange<T> for $range<u64> {
+            impl<T: WithRowId> TableRange<T> for $range<u64> {
                 type Output = MappedTableEntries<T>;
 
                 fn range(self, table: &TableHandle<T>) -> Result<Self::Output> {
@@ -113,13 +115,13 @@ macro_rules! impl_for_range_types {
                 }
             }
 
-            impl<I: Index> PartialEq<ArcBufSlice> for IndexComparator<I, $range<&I::IndexedFields>> {
+            impl<I: WithoutRowId> PartialEq<ArcBufSlice> for IndexComparator<I, $range<&I::SortedFields>> {
                 fn eq(&self, other: &ArcBufSlice) -> bool {
                     self.partial_cmp(other) == Some(Ordering::Equal)
                 }
             }
 
-            impl<I: Index> PartialOrd<ArcBufSlice> for IndexComparator<I, $range<&I::IndexedFields>> {
+            impl<I: WithoutRowId> PartialOrd<ArcBufSlice> for IndexComparator<I, $range<&I::SortedFields>> {
                 fn partial_cmp(&self, other: &ArcBufSlice) -> Option<Ordering> {
                     index_cmp_impl::<I>(&self.inner, other)
                 }
@@ -130,15 +132,19 @@ macro_rules! impl_for_range_types {
 
 impl_for_range_types!(Range, RangeInclusive, RangeFrom, RangeTo, RangeToInclusive);
 
-impl<T: Table> TableRange<T> for RangeFull {
-    type Output = MappedTableEntries<T>;
-
-    fn range(self, table: &TableHandle<T>) -> Result<Self::Output> {
-        table_range_impl(table, 0..)
+impl PartialEq<ArcBufSlice> for EqComparator {
+    fn eq(&self, _other: &ArcBufSlice) -> bool {
+        true
     }
 }
 
-impl<T: Table> TableRange<T> for u64 {
+impl PartialOrd<ArcBufSlice> for EqComparator {
+    fn partial_cmp(&self, _other: &ArcBufSlice) -> Option<Ordering> {
+        Some(Ordering::Equal)
+    }
+}
+
+impl<T: WithRowId> TableRange<T> for u64 {
     type Output = Option<T>;
 
     fn range(self, table: &TableHandle<T>) -> Result<Self::Output> {
@@ -146,43 +152,30 @@ impl<T: Table> TableRange<T> for u64 {
     }
 }
 
-impl<I: Index> PartialEq<ArcBufSlice> for IndexComparator<I, RangeFull> {
-    fn eq(&self, _other: &ArcBufSlice) -> bool {
-        true
-    }
-}
-
-impl<I: Index> PartialOrd<ArcBufSlice> for IndexComparator<I, RangeFull> {
-    fn partial_cmp(&self, _other: &ArcBufSlice) -> Option<Ordering> {
-        Some(Ordering::Equal)
-    }
-}
-
-impl<I: Index, T> IndexRange<I> for T
+impl<I: WithoutRowId, T> TableRange<I> for T
 where
     IndexComparator<I, T>: PartialOrd<ArcBufSlice>,
 {
     type Output = MappedIndexEntries<I, IndexComparator<I, Self>>;
 
-    fn range(self, index: &IndexHandle<I>) -> Result<Self::Output> {
-        let records = index
-            .rootpage()?
-            .into_index_entries_range(IndexComparator {
+    fn range(self, index: &TableHandle<I>) -> Result<Self::Output> {
+        index_range_impl(
+            index,
+            IndexComparator {
                 inner: self,
-                _marker: PhantomData,
-            })?;
-        let rows = records.map::<_, fn(_) -> _>(|record| deserialize_record(record?));
-        Ok(rows)
+                _marker: PhantomData::<I>,
+            },
+        )
     }
 }
 
-impl<I: Index> IndexRange<I> for &I::IndexedFields
+impl<I: WithoutRowId> TableRange<I> for &I::SortedFields
 where
-    I::IndexedFields: Ord,
+    I::SortedFields: Ord,
 {
     type Output = Option<I>;
 
-    fn range(self, index: &IndexHandle<I>) -> Result<Self::Output> {
+    fn range(self, index: &TableHandle<I>) -> Result<Self::Output> {
         (self..).range(index)?.next().transpose()
     }
 }
@@ -191,10 +184,18 @@ impl<T: Table> TableHandle<T> {
     pub fn get<R: TableRange<T>>(&self, id: R) -> Result<R::Output> {
         id.range(self)
     }
-}
 
-impl<I: Index> IndexHandle<I> {
-    pub fn get<R: IndexRange<I>>(&self, id: R) -> Result<R::Output> {
-        id.range(self)
+    pub fn iter(&self) -> Result<impl Iterator<Item = Result<T>>>
+    where
+        T: WithRowId,
+    {
+        table_range_impl(self, ..)
+    }
+
+    pub fn iter_without_row_id(&self) -> Result<impl Iterator<Item = Result<T>>>
+    where
+        T: WithoutRowId,
+    {
+        index_range_impl(self, EqComparator)
     }
 }
