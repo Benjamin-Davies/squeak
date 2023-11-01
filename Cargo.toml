@@ -1,5 +1,5 @@
 [package]
-name = "sqlite3-rs"
+name = "squeak"
 version = "0.1.0"
 edition = "2021"
 
