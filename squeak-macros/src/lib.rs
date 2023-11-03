@@ -1,12 +1,26 @@
 use convert_case::{Case, Casing};
 use quote::{format_ident, quote, TokenStreamExt};
-use syn::{parse_macro_input, Data, DeriveInput, Expr, Fields, Ident, Lit, Path};
+use syn::{parse_macro_input, Data, DeriveInput, Expr, Field, Fields, Ident, Lit, Path};
+
+struct Table {
+    ident: Ident,
+    schema_type: Ident,
+    name: String,
+    pk_field: Option<Field>,
+    row_id_field: Option<Field>,
+}
 
 #[proc_macro_derive(Table, attributes(table))]
 pub fn derive_table(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
 
-    let ident = input.ident;
+    let table = parse_input(input);
+
+    table_impls(table).into()
+}
+
+fn parse_input(input: DeriveInput) -> Table {
+    let ident = input.ident.clone();
     let Data::Struct(struct_) = input.data else {
         unimplemented!("non-struct input");
     };
@@ -19,7 +33,7 @@ pub fn derive_table(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut pk_field = None;
     let mut row_id_field = None;
 
-    for attr in input.attrs {
+    for attr in &input.attrs {
         if into_ident(attr.path()) == "table" {
             let arg = attr.parse_args::<Expr>().unwrap();
             let Expr::Assign(assign) = arg else {
@@ -49,16 +63,34 @@ pub fn derive_table(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 let arg = attr.parse_args::<Path>().unwrap();
                 match into_ident(&arg).to_string().as_str() {
                     "primary_key" => {
-                        pk_field = Some(field);
+                        pk_field = Some(field.clone());
                     }
                     "row_id" => {
-                        row_id_field = Some(field);
+                        row_id_field = Some(field.clone());
                     }
                     _ => unimplemented!("unknown attribute"),
                 }
             }
         }
     }
+
+    Table {
+        ident,
+        schema_type,
+        name,
+        pk_field,
+        row_id_field,
+    }
+}
+
+fn table_impls(table: Table) -> proc_macro2::TokenStream {
+    let Table {
+        ident,
+        schema_type,
+        name,
+        pk_field,
+        row_id_field,
+    } = table;
 
     let row_id_fn = if let Some(row_id_field) = row_id_field {
         let row_id_ident = row_id_field.ident.as_ref().unwrap();
@@ -116,7 +148,7 @@ pub fn derive_table(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
         ));
     }
 
-    result.into()
+    result
 }
 
 fn into_ident(path: &Path) -> Ident {
