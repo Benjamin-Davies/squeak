@@ -12,14 +12,14 @@ use crate::physical::{btree::BTreePage, buf::ArcBuf, header::Header};
 
 #[derive(Clone)]
 pub struct DB {
-    pub(crate) state: Arc<Mutex<DBState>>,
+    pub(super) state: Arc<Mutex<DBState>>,
 }
 
 #[derive(Debug)]
 pub(crate) struct DBState {
-    file: File,
-    pages: BTreeMap<u32, ArcBuf>,
-    header: Header,
+    pub(super) file: File,
+    pub(super) pages: BTreeMap<u32, ArcBuf>,
+    pub(super) header: Header,
 }
 
 impl DB {
@@ -45,12 +45,16 @@ impl DB {
         let mut inner = self.state.lock().unwrap();
         let page = inner.page(page_number)?;
 
-        Ok(BTreePage::new(self.clone(), page_number, page.into()))
+        Ok(BTreePage::new(
+            self.clone(),
+            page_number,
+            page.clone().into(),
+        ))
     }
 }
 
 impl DBState {
-    pub(crate) fn page(&mut self, page_number: u32) -> Result<ArcBuf> {
+    pub(crate) fn page(&mut self, page_number: u32) -> Result<&ArcBuf> {
         fn inner(file: &mut File, header: &Header, page_number: u32) -> Result<ArcBuf> {
             if !(1..=header.database_size()).contains(&page_number) {
                 return Err(anyhow!("page number out of bounds"));
@@ -72,11 +76,11 @@ impl DBState {
                 if page.len() != self.header.page_size() as usize {
                     *page = inner(&mut self.file, &self.header, page_number)?;
                 }
-                page.clone()
+                page
             }
             Entry::Vacant(entry) => {
                 let page = inner(&mut self.file, &self.header, page_number)?;
-                entry.insert(page).clone()
+                entry.insert(page)
             }
         };
 

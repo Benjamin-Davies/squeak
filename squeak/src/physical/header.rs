@@ -35,6 +35,10 @@ pub struct Header {
     file_change_counter: U32,
     /// Size of the database file in pages. The "in-header database size".
     database_size: U32,
+    /// Page number of the first freelist trunk page.
+    freelist_head: U32,
+    /// Total number of freelist pages.
+    freelist_count: U32,
     // The rest of the header is irrelevant for our purposes.
 }
 
@@ -77,5 +81,25 @@ impl Header {
 
     pub(crate) fn database_size(&self) -> u32 {
         self.database_size.get()
+    }
+
+    pub(crate) fn set_database_size(&mut self, database_size: u32) {
+        self.database_size.set(database_size);
+    }
+
+    pub(crate) fn freelist_head(&self) -> u32 {
+        self.freelist_head.get()
+    }
+
+    pub(crate) fn set_freelist_head(&mut self, freelist_head: u32) {
+        self.freelist_head.set(freelist_head);
+    }
+
+    pub(crate) fn freelist_count(&self) -> u32 {
+        self.freelist_count.get()
+    }
+
+    pub(crate) fn set_freelist_count(&mut self, freelist_count: u32) {
+        self.freelist_count.set(freelist_count);
     }
 }
