@@ -134,56 +134,20 @@ mod tests {
 
     use crate::physical::db::DB;
 
-    #[derive(Debug, Clone, Deserialize)]
-    struct Empty;
+    #[derive(Debug, Clone, Deserialize, Table)]
+    struct Empty {}
 
-    impl Table for Empty {
-        const TYPE: SchemaType = SchemaType::Table;
-        const NAME: &'static str = "empty";
-    }
-
-    impl WithRowId for Empty {}
-
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Table)]
     struct Strings {
+        #[table(primary_key)]
         pub string: String,
-    }
-
-    impl Table for Strings {
-        const TYPE: SchemaType = SchemaType::Table;
-        const NAME: &'static str = "strings";
-    }
-
-    impl WithRowId for Strings {}
-
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-    struct StringsPK {
-        pub string: String,
-        pub key: u64,
-    }
-
-    impl Table for StringsPK {
-        const TYPE: SchemaType = SchemaType::Index;
-        const NAME: &'static str = "sqlite_autoindex_strings_1";
-    }
-
-    impl WithoutRowId for StringsPK {
-        type SortedFields = (String,);
-
-        fn into_sorted_fields(self) -> Self::SortedFields {
-            (self.string,)
-        }
-    }
-
-    impl Index<Strings> for StringsPK {
-        fn get_row_id(&self) -> u64 {
-            self.key
-        }
     }
 
     #[test]
     fn test_read_schema() {
         let db = DB::open("examples/empty.db").unwrap();
+
+        assert_eq!(Schema::NAME, "sqlite_schema");
 
         let rows = db
             .table::<Schema>()
@@ -207,6 +171,8 @@ mod tests {
     fn test_read_table() {
         let db = DB::open("examples/empty.db").unwrap();
 
+        assert_eq!(Empty::NAME, "empty");
+
         let row_count = db.table::<Empty>().unwrap().iter().unwrap().count();
         assert_eq!(row_count, 0);
     }
@@ -214,6 +180,8 @@ mod tests {
     #[test]
     fn test_read_index() {
         let db = DB::open("examples/string_index.db").unwrap();
+
+        assert_eq!(StringsPK::NAME, "sqlite_autoindex_strings_1");
 
         let index = db.table::<StringsPK>().unwrap();
         let rows = index
@@ -258,6 +226,8 @@ mod tests {
     #[test]
     fn test_search_with_index() {
         let db = DB::open("examples/string_index.db").unwrap();
+
+        assert_eq!(Strings::NAME, "strings");
 
         let table = db.table::<Strings>().unwrap();
         let entry = table
