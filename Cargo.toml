@@ -1,11 +1,3 @@
-[package]
-name = "squeak"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-anyhow = "1.0.75"
-serde = { version = "1.0.188", features = ["derive"] }
-zerocopy = { version = "0.7.8", features = ["derive"] }
-
-squeak-macros = { path = "squeak-macros" }
+[workspace]
+members = ["squeak", "squeak-macros"]
+resolver = "2"
