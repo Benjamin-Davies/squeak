@@ -1,3 +1,6 @@
+use std::io::{Read, Seek, SeekFrom};
+
+use anyhow::Result;
 use zerocopy::{big_endian::U32, little_endian, FromBytes, FromZeroes};
 
 const HEADER_STRING: [u8; 16] = *b"SQLite format 3\0";
@@ -53,13 +56,17 @@ impl Default for Header {
     }
 }
 
-impl<'a> From<&'a [u8]> for Header {
-    fn from(bytes: &'a [u8]) -> Self {
-        Self::read_from_prefix(bytes).unwrap()
-    }
-}
-
 impl Header {
+    pub(crate) fn read<R: Read + Seek>(mut reader: R) -> Result<Self> {
+        let mut bytes = [0; HEADER_SIZE];
+        reader.seek(SeekFrom::Start(0))?;
+        reader.read_exact(&mut bytes)?;
+
+        let header = Self::read_from_prefix(&bytes).unwrap();
+        header.validate();
+        Ok(header)
+    }
+
     pub(crate) fn validate(&self) {
         assert_eq!(self.header_string, HEADER_STRING);
 
@@ -77,6 +84,10 @@ impl Header {
 
     pub(crate) fn page_size(&self) -> u32 {
         self.page_size.get() as u32 * 256
+    }
+
+    pub(crate) fn file_change_counter(&self) -> u32 {
+        self.file_change_counter.get()
     }
 
     pub(crate) fn database_size(&self) -> u32 {

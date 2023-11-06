@@ -79,3 +79,16 @@ impl<'a, K, V: ?Sized> VacantEntry<'a, K, V> {
         }
     }
 }
+
+impl<K, V: ?Sized> Drop for SharedAppendMap<K, V> {
+    fn drop(&mut self) {
+        let inner = self.inner.get_mut().unwrap();
+
+        for ptr in inner.values() {
+            unsafe {
+                // SAFETY: Pointer valid.
+                drop(Box::from_raw(ptr.as_ptr()));
+            }
+        }
+    }
+}

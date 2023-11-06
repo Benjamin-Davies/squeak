@@ -2,9 +2,10 @@ use std::collections::{btree_map::Entry, BTreeMap};
 
 use anyhow::Result;
 
-use super::{
+use crate::physical::{
     db::{ReadDB, DB},
     freelist,
+    header::Header,
 };
 
 pub struct Transaction<'a> {
@@ -16,18 +17,26 @@ pub struct Transaction<'a> {
 }
 
 impl DB {
-    pub fn begin_transaction(&mut self) -> Transaction {
+    pub fn begin_transaction(&mut self) -> Result<Transaction> {
         let db = self;
+
+        let file = db.file.get_mut().unwrap();
+        let new_header = Header::read(file)?;
+        if new_header.file_change_counter() != db.header.file_change_counter() {
+            db.clear_cache();
+        }
+        db.header = new_header;
+
         let database_size = db.header.database_size();
         let freelist_head = db.header.freelist_head();
         let freelist_count = db.header.freelist_count();
-        Transaction {
+        Ok(Transaction {
             db,
             database_size,
             freelist_head,
             freelist_count,
             dirty_pages: BTreeMap::new(),
-        }
+        })
     }
 }
 
@@ -97,7 +106,7 @@ mod tests {
     fn test_new_page() {
         let mut db = DB::open("examples/empty.db").unwrap();
 
-        let mut transaction = db.begin_transaction();
+        let mut transaction = db.begin_transaction().unwrap();
 
         let (page_number, page) = transaction.new_page().unwrap();
         assert_eq!(page_number, 3);

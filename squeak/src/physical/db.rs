@@ -24,22 +24,20 @@ pub struct DB {
 
 impl DB {
     pub fn open(path: &str) -> Result<Self> {
-        let file = File::open(path)?;
+        let mut file = File::open(path)?;
 
-        let mut db = Self {
+        let header = Header::read(&mut file)?;
+        header.validate();
+
+        Ok(Self {
             file: Mutex::new(file),
             pages: SharedAppendMap::new(),
-            header: Header::default(),
-        };
+            header,
+        })
+    }
 
-        let header: Header = db.page(1)?.as_ref().into();
-        header.validate();
-        db.header = header;
-
-        // Clear the pages cache as the page size may have changed.
-        db.pages = SharedAppendMap::new();
-
-        Ok(db)
+    pub fn clear_cache(&mut self) {
+        self.pages = SharedAppendMap::new();
     }
 }
 

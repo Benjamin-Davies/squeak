@@ -239,7 +239,7 @@ mod tests {
     fn test_search_with_index_in_transaction() {
         let mut db = DB::open("examples/string_index.db").unwrap();
 
-        let transaction = db.begin_transaction();
+        let transaction = db.begin_transaction().unwrap();
 
         let table = transaction.table::<Strings>().unwrap();
         let entry = table
