@@ -6,7 +6,7 @@ use zerocopy::{
     FromBytes,
 };
 
-use crate::physical::{buf::ArcBufSlice, db::DB, header::HEADER_SIZE, varint};
+use crate::physical::{buf::Buf, db::DB, header::HEADER_SIZE, varint};
 
 use self::iter::{BTreeIndexEntries, BTreeTableEntries};
 
@@ -17,7 +17,7 @@ pub struct BTreePage<'db> {
     db: &'db DB,
     page_number: u32,
     header: BTreePageHeader,
-    data: ArcBufSlice,
+    data: &'db [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +54,7 @@ struct BTreePageHeader {
 }
 
 impl<'db> BTreePage<'db> {
-    pub(crate) fn new(db: &'db DB, page_number: u32, data: ArcBufSlice) -> Self {
+    pub(crate) fn new(db: &'db DB, page_number: u32, data: &'db [u8]) -> Self {
         let start = if page_number == 1 { HEADER_SIZE } else { 0 };
         let header = BTreePageHeader::read_from_prefix(&data[start..]).unwrap();
         header.validate();
@@ -82,14 +82,14 @@ impl<'db> BTreePage<'db> {
         U16::read_from_prefix(&self.data[start..]).unwrap().get()
     }
 
-    fn cell(&self, cell_index: u16) -> ArcBufSlice {
+    fn cell(&self, cell_index: u16) -> &'db [u8] {
         let ptr = self.cell_pointer(cell_index);
-        let mut data = self.data.clone();
+        let mut data = self.data;
         data.consume_bytes(ptr as usize);
         data
     }
 
-    pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (u64, ArcBufSlice) {
+    pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (u64, &'db [u8]) {
         assert_eq!(self.page_type(), BTreePageType::LeafTable);
 
         // TODO: Handle when a cell overflows onto a separate page.
@@ -105,13 +105,13 @@ impl<'db> BTreePage<'db> {
         assert_eq!(self.page_type(), BTreePageType::InteriorTable);
 
         let cell = self.cell(cell_index);
-        let left_child_page_number = U32::read_from_prefix(&cell).unwrap().get();
+        let left_child_page_number = U32::read_from_prefix(cell).unwrap().get();
         let (row_id, _) = varint::read(&cell[4..]);
 
         (left_child_page_number, row_id)
     }
 
-    pub(crate) fn leaf_index_cell(&self, cell_index: u16) -> ArcBufSlice {
+    pub(crate) fn leaf_index_cell(&self, cell_index: u16) -> &'db [u8] {
         assert_eq!(self.page_type(), BTreePageType::LeafIndex);
 
         // TODO: Handle when a cell overflows onto a separate page.
@@ -122,12 +122,12 @@ impl<'db> BTreePage<'db> {
         cell
     }
 
-    pub(crate) fn interior_index_cell(&self, cell_index: u16) -> (u32, ArcBufSlice) {
+    pub(crate) fn interior_index_cell(&self, cell_index: u16) -> (u32, &'db [u8]) {
         assert_eq!(self.page_type(), BTreePageType::InteriorIndex);
 
         // TODO: Handle when a cell overflows onto a separate page.
         let mut cell = self.cell(cell_index);
-        let left_child_page_number = U32::read_from_prefix(&cell).unwrap().get();
+        let left_child_page_number = U32::read_from_prefix(cell).unwrap().get();
         let payload_size = cell.consume_varint();
         cell.truncate(payload_size as usize);
 
@@ -141,7 +141,7 @@ impl<'db> BTreePage<'db> {
         BTreeTableEntries::with_range(self, range)
     }
 
-    pub(crate) fn into_index_entries_range<C: PartialOrd<ArcBufSlice>>(
+    pub(crate) fn into_index_entries_range<C: PartialOrd<[u8]>>(
         self,
         comparator: C,
     ) -> Result<BTreeIndexEntries<'db, C>> {

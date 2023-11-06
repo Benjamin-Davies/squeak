@@ -2,8 +2,6 @@ use std::{cmp::Ordering, mem, ops::Range};
 
 use anyhow::Result;
 
-use crate::physical::buf::ArcBufSlice;
-
 use super::{BTreePage, BTreePageType};
 
 pub struct BTreeTableEntries<'db> {
@@ -84,7 +82,7 @@ impl<'db> BTreeTableEntries<'db> {
 }
 
 impl<'db> Iterator for BTreeTableEntries<'db> {
-    type Item = Result<(u64, ArcBufSlice)>;
+    type Item = Result<(u64, &'db [u8])>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -126,7 +124,7 @@ impl<'db> Iterator for BTreeTableEntries<'db> {
     }
 }
 
-impl<'db, C: PartialOrd<ArcBufSlice>> BTreeIndexEntries<'db, C> {
+impl<'db, C: PartialOrd<[u8]>> BTreeIndexEntries<'db, C> {
     pub(super) fn with_range(page: BTreePage<'db>, comparator: C) -> Result<Self> {
         let mut entries = Self {
             page,
@@ -148,7 +146,7 @@ impl<'db, C: PartialOrd<ArcBufSlice>> BTreeIndexEntries<'db, C> {
                     let mut child_page_index = 0;
                     for index in 0..self.page.header.cell_count.get() {
                         let (_page_number, current_key) = self.page.interior_index_cell(index);
-                        if self.comparator < current_key {
+                        if self.comparator < *current_key {
                             child_page_index = index;
                         } else {
                             break;
@@ -165,7 +163,7 @@ impl<'db, C: PartialOrd<ArcBufSlice>> BTreeIndexEntries<'db, C> {
                     let mut leaf_index = 0;
                     for index in 0..self.page.header.cell_count.get() {
                         let current_key = self.page.leaf_index_cell(index);
-                        if self.comparator < current_key {
+                        if self.comparator < *current_key {
                             leaf_index = index;
                         } else {
                             break;
@@ -180,8 +178,8 @@ impl<'db, C: PartialOrd<ArcBufSlice>> BTreeIndexEntries<'db, C> {
     }
 }
 
-impl<'db, C: PartialOrd<ArcBufSlice>> Iterator for BTreeIndexEntries<'db, C> {
-    type Item = Result<ArcBufSlice>;
+impl<'db, C: PartialOrd<[u8]>> Iterator for BTreeIndexEntries<'db, C> {
+    type Item = Result<&'db [u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -204,7 +202,7 @@ impl<'db, C: PartialOrd<ArcBufSlice>> Iterator for BTreeIndexEntries<'db, C> {
                         let record = self.page.leaf_index_cell(self.index);
                         self.index += 1;
 
-                        match self.comparator.partial_cmp(&record) {
+                        match self.comparator.partial_cmp(record) {
                             Some(Ordering::Less) => return None,
                             Some(Ordering::Equal) => return Some(Ok(record)),
                             _ => continue,

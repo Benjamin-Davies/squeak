@@ -1,35 +1,35 @@
-use crate::physical::{buf::ArcBufSlice, varint};
+use crate::physical::{buf::Buf, varint};
 
 use super::{SerialType, SerialValue};
 
-pub struct SerialTypeIterator {
+pub struct SerialTypeIterator<'a> {
     header_len: u64,
-    data: ArcBufSlice,
+    data: &'a [u8],
 }
 
-pub struct SerialValueIterator {
-    types: SerialTypeIterator,
-    data: ArcBufSlice,
+pub struct SerialValueIterator<'a> {
+    types: SerialTypeIterator<'a>,
+    data: &'a [u8],
 }
 
-impl SerialTypeIterator {
-    pub(super) fn new(mut data: ArcBufSlice) -> Self {
-        let (header_len, len) = varint::read(&data);
+impl<'a> SerialTypeIterator<'a> {
+    pub(super) fn new(mut data: &'a [u8]) -> Self {
+        let (header_len, len) = varint::read(data);
         data.truncate(header_len as usize);
         data.consume_bytes(len);
         Self { header_len, data }
     }
 }
 
-impl SerialValueIterator {
-    pub(super) fn new(mut data: ArcBufSlice) -> Self {
-        let types = SerialTypeIterator::new(data.clone());
+impl<'a> SerialValueIterator<'a> {
+    pub(super) fn new(mut data: &'a [u8]) -> Self {
+        let types = SerialTypeIterator::new(data);
         data.consume_bytes(types.header_len as usize);
         Self { types, data }
     }
 }
 
-impl Iterator for SerialTypeIterator {
+impl<'a> Iterator for SerialTypeIterator<'a> {
     type Item = SerialType;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -42,7 +42,7 @@ impl Iterator for SerialTypeIterator {
     }
 }
 
-impl Iterator for SerialValueIterator {
+impl<'a> Iterator for SerialValueIterator<'a> {
     type Item = SerialValue;
 
     fn next(&mut self) -> Option<Self::Item> {

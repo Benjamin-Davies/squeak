@@ -7,10 +7,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::physical::{
-    btree::iter::{BTreeIndexEntries, BTreeTableEntries},
-    buf::ArcBufSlice,
-};
+use crate::physical::btree::iter::{BTreeIndexEntries, BTreeTableEntries};
 
 use super::{
     deserialize_record, deserialize_record_with_row_id, Table, TableHandle, WithRowId, WithoutRowId,
@@ -30,10 +27,10 @@ pub struct IndexComparator<I, T> {
 struct EqComparator;
 
 type MappedTableEntries<'db, T> =
-    Map<BTreeTableEntries<'db>, fn(Result<(u64, ArcBufSlice)>) -> Result<T>>;
+    Map<BTreeTableEntries<'db>, fn(Result<(u64, &'db [u8])>) -> Result<T>>;
 
 type MappedIndexEntries<'db, T, C> =
-    Map<BTreeIndexEntries<'db, C>, fn(Result<ArcBufSlice>) -> Result<T>>;
+    Map<BTreeIndexEntries<'db, C>, fn(Result<&'db [u8]>) -> Result<T>>;
 
 fn table_range_impl<'db, T: WithRowId>(
     table: &'db TableHandle<'db, T>,
@@ -55,7 +52,7 @@ fn table_range_impl<'db, T: WithRowId>(
     Ok(rows)
 }
 
-fn index_range_impl<'db, I: WithoutRowId, C: PartialOrd<ArcBufSlice>>(
+fn index_range_impl<'db, I: WithoutRowId, C: PartialOrd<[u8]>>(
     index: &'db TableHandle<'db, I>,
     comparator: C,
 ) -> Result<MappedIndexEntries<I, C>> {
@@ -98,9 +95,9 @@ fn range_cmp<'a, T: Ord + 'a>(range: &impl RangeBounds<&'a T>, other: &T) -> Ord
 
 fn index_cmp_impl<'a, I: WithoutRowId + 'a>(
     range: &impl RangeBounds<&'a I::SortedFields>,
-    record: &ArcBufSlice,
+    record: &[u8],
 ) -> Option<Ordering> {
-    let row = deserialize_record::<I>(record.clone()).ok()?;
+    let row = deserialize_record::<I>(record).ok()?;
     let indexed_fields = row.into_sorted_fields();
 
     Some(range_cmp(range, &indexed_fields))
@@ -117,14 +114,14 @@ macro_rules! impl_for_range_types {
                 }
             }
 
-            impl<I: WithoutRowId> PartialEq<ArcBufSlice> for IndexComparator<I, $range<&I::SortedFields>> {
-                fn eq(&self, other: &ArcBufSlice) -> bool {
+            impl<I: WithoutRowId> PartialEq<[u8]> for IndexComparator<I, $range<&I::SortedFields>> {
+                fn eq(&self, other: &[u8]) -> bool {
                     self.partial_cmp(other) == Some(Ordering::Equal)
                 }
             }
 
-            impl<I: WithoutRowId> PartialOrd<ArcBufSlice> for IndexComparator<I, $range<&I::SortedFields>> {
-                fn partial_cmp(&self, other: &ArcBufSlice) -> Option<Ordering> {
+            impl<I: WithoutRowId> PartialOrd<[u8]> for IndexComparator<I, $range<&I::SortedFields>> {
+                fn partial_cmp(&self, other: &[u8]) -> Option<Ordering> {
                     index_cmp_impl::<I>(&self.inner, other)
                 }
             }
@@ -134,14 +131,14 @@ macro_rules! impl_for_range_types {
 
 impl_for_range_types!(Range, RangeInclusive, RangeFrom, RangeTo, RangeToInclusive);
 
-impl PartialEq<ArcBufSlice> for EqComparator {
-    fn eq(&self, _other: &ArcBufSlice) -> bool {
+impl PartialEq<[u8]> for EqComparator {
+    fn eq(&self, _other: &[u8]) -> bool {
         true
     }
 }
 
-impl PartialOrd<ArcBufSlice> for EqComparator {
-    fn partial_cmp(&self, _other: &ArcBufSlice) -> Option<Ordering> {
+impl PartialOrd<[u8]> for EqComparator {
+    fn partial_cmp(&self, _other: &[u8]) -> Option<Ordering> {
         Some(Ordering::Equal)
     }
 }
@@ -156,7 +153,7 @@ impl<'db, T: WithRowId> TableRange<'db, T> for u64 {
 
 impl<'db, I: WithoutRowId, T> TableRange<'db, I> for T
 where
-    IndexComparator<I, T>: PartialOrd<ArcBufSlice>,
+    IndexComparator<I, T>: PartialOrd<[u8]>,
 {
     type Output = MappedIndexEntries<'db, I, IndexComparator<I, Self>>;
 

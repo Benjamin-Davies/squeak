@@ -17,11 +17,11 @@ pub mod row_id {
     }
 }
 
-impl<'de> IntoDeserializer<'de> for Record {
-    type Deserializer = SeqDeserializer<SerialValueIterator, Error>;
+impl<'de, 'a> IntoDeserializer<'de> for Record<'a> {
+    type Deserializer = SeqDeserializer<SerialValueIterator<'a>, Error>;
 
     fn into_deserializer(self) -> Self::Deserializer {
-        SeqDeserializer::new(self.into_values())
+        SeqDeserializer::new(self.values())
     }
 }
 

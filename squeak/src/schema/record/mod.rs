@@ -2,7 +2,7 @@ use std::fmt;
 
 use zerocopy::big_endian::{F64, I16, I32, I64};
 
-use crate::physical::buf::ArcBufSlice;
+use crate::physical::buf::Buf;
 
 use self::{
     ints::{I24, I48},
@@ -12,9 +12,9 @@ use self::{
 pub mod ints;
 pub mod iter;
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct Record {
-    data: ArcBufSlice,
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Record<'a> {
+    data: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,31 +49,23 @@ pub enum SerialValue {
     Text(String),
 }
 
-impl From<ArcBufSlice> for Record {
-    fn from(data: ArcBufSlice) -> Self {
+impl<'a> From<&'a [u8]> for Record<'a> {
+    fn from(data: &'a [u8]) -> Self {
         Self { data }
     }
 }
 
-impl Record {
-    pub fn types(&self) -> SerialTypeIterator {
-        self.clone().into_types()
-    }
-
-    pub fn values(&self) -> SerialValueIterator {
-        self.clone().into_values()
-    }
-
-    pub fn into_types(self) -> SerialTypeIterator {
+impl<'a> Record<'a> {
+    pub fn types(self) -> SerialTypeIterator<'a> {
         SerialTypeIterator::new(self.data)
     }
 
-    pub fn into_values(self) -> SerialValueIterator {
+    pub fn values(self) -> SerialValueIterator<'a> {
         SerialValueIterator::new(self.data)
     }
 }
 
-impl fmt::Debug for Record {
+impl<'a> fmt::Debug for Record<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Record")
             .field("columns", &self.values().collect::<Vec<_>>())
@@ -102,7 +94,7 @@ impl From<u64> for SerialType {
 }
 
 impl SerialValue {
-    pub fn consume(ty: SerialType, data: &mut ArcBufSlice) -> Self {
+    pub fn consume(ty: SerialType, data: &mut &[u8]) -> Self {
         match ty {
             SerialType::Null => Self::Null,
             SerialType::I8 => Self::I8(data.consume()),
@@ -124,7 +116,6 @@ impl SerialValue {
 
 #[cfg(test)]
 mod tests {
-    use crate::physical::buf::ArcBuf;
 
     use super::*;
 
@@ -137,8 +128,7 @@ mod tests {
 
     #[test]
     fn test_read_types() {
-        let data: ArcBuf = EXAMPLE_RECORD.to_vec().into();
-        let record = Record::from(ArcBufSlice::from(data));
+        let record = Record::from(EXAMPLE_RECORD);
 
         let types = record.types().collect::<Vec<_>>();
         assert_eq!(
@@ -155,10 +145,9 @@ mod tests {
 
     #[test]
     fn test_read_columns() {
-        let data: ArcBuf = EXAMPLE_RECORD.to_vec().into();
-        let record = Record::from(ArcBufSlice::from(data));
+        let record = Record::from(EXAMPLE_RECORD);
 
-        let columns = record.into_values().collect::<Vec<_>>();
+        let columns = record.values().collect::<Vec<_>>();
         assert_eq!(
             columns,
             vec![

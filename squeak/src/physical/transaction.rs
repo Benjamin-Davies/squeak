@@ -1,18 +1,11 @@
-use std::{
-    collections::{btree_map::Entry, BTreeMap},
-    sync::MutexGuard,
-};
+use std::collections::{btree_map::Entry, BTreeMap};
 
 use anyhow::Result;
 
-use super::{
-    buf::ArcBuf,
-    db::{DBState, DB},
-    freelist,
-};
+use super::{db::DB, freelist};
 
 pub struct Transaction<'a> {
-    db: MutexGuard<'a, DBState>,
+    db: &'a mut DB,
     database_size: u32,
     pub(super) freelist_head: u32,
     pub(super) freelist_count: u32,
@@ -20,8 +13,8 @@ pub struct Transaction<'a> {
 }
 
 impl DB {
-    pub fn begin_transaction(&self) -> Transaction {
-        let db = self.state.lock().unwrap();
+    pub fn begin_transaction(&mut self) -> Transaction {
+        let db = self;
         let database_size = db.header.database_size();
         let freelist_head = db.header.freelist_head();
         let freelist_count = db.header.freelist_count();
@@ -38,13 +31,13 @@ impl DB {
 // TODO: Remove once we start using these functions
 #[allow(unused)]
 impl<'a> Transaction<'a> {
-    pub(crate) fn page(&mut self, page_number: u32) -> Result<&[u8]> {
+    pub(crate) fn page(&self, page_number: u32) -> Result<&[u8]> {
         if let Some(dirty_page) = self.dirty_pages.get(&page_number) {
             Ok(dirty_page)
         } else {
             let page = self.db.page(page_number)?;
 
-            Ok(&page)
+            Ok(page)
         }
     }
 
@@ -81,7 +74,7 @@ impl<'a> Transaction<'a> {
         let mut db = self.db;
         for (page_num, page) in self.dirty_pages {
             // TODO: Write page to disk
-            db.pages.insert(page_num, ArcBuf::from(page));
+            db.pages.insert_or_replace(page_num, page);
         }
         db.header.set_database_size(self.database_size);
         db.header.set_freelist_head(self.freelist_head);
@@ -97,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_new_page() {
-        let db = DB::open("examples/empty.db").unwrap();
+        let mut db = DB::open("examples/empty.db").unwrap();
 
         let mut transaction = db.begin_transaction();
 

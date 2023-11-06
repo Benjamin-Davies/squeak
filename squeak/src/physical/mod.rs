@@ -7,3 +7,4 @@ pub(crate) mod varint;
 
 mod freelist;
 mod header;
+mod shared_append_map;

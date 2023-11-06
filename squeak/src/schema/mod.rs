@@ -7,7 +7,7 @@ use serde::{
 };
 use squeak_macros::Table;
 
-use crate::physical::{btree::BTreePage, buf::ArcBufSlice, db::DB};
+use crate::physical::{btree::BTreePage, db::DB};
 
 use self::record::Record;
 
@@ -54,35 +54,24 @@ pub trait Index<T: Table>: WithoutRowId {
     fn get_row_id(&self) -> u64;
 }
 
-fn deserialize_record_with_row_id<T: WithRowId>((row_id, buf): (u64, ArcBufSlice)) -> Result<T> {
+fn deserialize_record_with_row_id<T: WithRowId>((row_id, buf): (u64, &[u8])) -> Result<T> {
     let record = Record::from(buf);
     let mut value = T::deserialize(record.into_deserializer())?;
     value.deserialize_row_id(row_id);
     Ok(value)
 }
 
-fn deserialize_record<T: DeserializeOwned>(buf: ArcBufSlice) -> Result<T> {
+fn deserialize_record<T: DeserializeOwned>(buf: &[u8]) -> Result<T> {
     let record = Record::from(buf);
     let value = T::deserialize(record.into_deserializer())?;
     Ok(value)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TableHandle<'db, T> {
     db: &'db DB,
     rootpage: u32,
     _marker: PhantomData<T>,
-}
-
-// TODO: try derive impl
-impl<'db, T> Clone for TableHandle<'db, T> {
-    fn clone(&self) -> Self {
-        Self {
-            db: self.db,
-            rootpage: self.rootpage,
-            _marker: PhantomData,
-        }
-    }
 }
 
 impl<'db, T: Table> TableHandle<'db, T> {
