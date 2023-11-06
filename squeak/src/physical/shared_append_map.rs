@@ -42,7 +42,7 @@ impl<K, V: ?Sized> SharedAppendMap<K, V> {
         }
     }
 
-    pub fn insert_or_replace(&mut self, key: K, value: impl Into<Box<V>>)
+    pub fn insert_or_replace(&mut self, key: K, value: impl Into<Box<V>>) -> Option<Box<V>>
     where
         K: Ord,
     {
@@ -51,12 +51,10 @@ impl<K, V: ?Sized> SharedAppendMap<K, V> {
         let ptr = NonNull::from(Box::leak(value));
         let old = self.inner.get_mut().unwrap().insert(key, ptr);
 
-        if let Some(old) = old {
-            unsafe {
-                // SAFETY: Pointer valid.
-                drop(Box::from_raw(old.as_ptr()));
-            }
-        }
+        old.map(|old| unsafe {
+            // SAFETY: Pointer valid.
+            Box::from_raw(old.as_ptr())
+        })
     }
 }
 
