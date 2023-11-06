@@ -6,24 +6,24 @@ use crate::physical::buf::ArcBufSlice;
 
 use super::{BTreePage, BTreePageType};
 
-pub struct BTreeTableEntries {
-    page: BTreePage,
+pub struct BTreeTableEntries<'db> {
+    page: BTreePage<'db>,
     index: u16,
-    stack: Vec<(BTreePage, u16)>,
+    stack: Vec<(BTreePage<'db>, u16)>,
     // Exclusive upper bound
     max_row_id: Option<u64>,
 }
 
-pub struct BTreeIndexEntries<C> {
-    page: BTreePage,
+pub struct BTreeIndexEntries<'db, C> {
+    page: BTreePage<'db>,
     index: u16,
-    stack: Vec<(BTreePage, u16)>,
+    stack: Vec<(BTreePage<'db>, u16)>,
     // Used to see if we're inside of the specified range
     comparator: C,
 }
 
-impl BTreeTableEntries {
-    pub(super) fn new(page: BTreePage) -> Self {
+impl<'db> BTreeTableEntries<'db> {
+    pub(super) fn new(page: BTreePage<'db>) -> Self {
         Self {
             page,
             index: 0,
@@ -32,7 +32,7 @@ impl BTreeTableEntries {
         }
     }
 
-    pub(super) fn with_range(page: BTreePage, range: Range<Option<u64>>) -> Result<Self> {
+    pub(super) fn with_range(page: BTreePage<'db>, range: Range<Option<u64>>) -> Result<Self> {
         let mut entries = Self::new(page);
 
         if let Some(start) = range.start {
@@ -83,7 +83,7 @@ impl BTreeTableEntries {
     }
 }
 
-impl Iterator for BTreeTableEntries {
+impl<'db> Iterator for BTreeTableEntries<'db> {
     type Item = Result<(u64, ArcBufSlice)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -126,8 +126,8 @@ impl Iterator for BTreeTableEntries {
     }
 }
 
-impl<C: PartialOrd<ArcBufSlice>> BTreeIndexEntries<C> {
-    pub(super) fn with_range(page: BTreePage, comparator: C) -> Result<Self> {
+impl<'db, C: PartialOrd<ArcBufSlice>> BTreeIndexEntries<'db, C> {
+    pub(super) fn with_range(page: BTreePage<'db>, comparator: C) -> Result<Self> {
         let mut entries = Self {
             page,
             index: 0,
@@ -180,7 +180,7 @@ impl<C: PartialOrd<ArcBufSlice>> BTreeIndexEntries<C> {
     }
 }
 
-impl<C: PartialOrd<ArcBufSlice>> Iterator for BTreeIndexEntries<C> {
+impl<'db, C: PartialOrd<ArcBufSlice>> Iterator for BTreeIndexEntries<'db, C> {
     type Item = Result<ArcBufSlice>;
 
     fn next(&mut self) -> Option<Self::Item> {

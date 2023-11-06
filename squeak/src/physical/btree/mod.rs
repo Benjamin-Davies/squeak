@@ -13,8 +13,8 @@ use self::iter::{BTreeIndexEntries, BTreeTableEntries};
 pub mod iter;
 
 #[derive(Debug, Clone)]
-pub struct BTreePage {
-    db: DB,
+pub struct BTreePage<'db> {
+    db: &'db DB,
     page_number: u32,
     header: BTreePageHeader,
     data: ArcBufSlice,
@@ -53,13 +53,13 @@ struct BTreePageHeader {
     right_most_pointer: U16,
 }
 
-impl BTreePage {
-    pub(crate) fn new(db: DB, page_number: u32, data: ArcBufSlice) -> BTreePage {
+impl<'db> BTreePage<'db> {
+    pub(crate) fn new(db: &'db DB, page_number: u32, data: ArcBufSlice) -> Self {
         let start = if page_number == 1 { HEADER_SIZE } else { 0 };
         let header = BTreePageHeader::read_from_prefix(&data[start..]).unwrap();
         header.validate();
 
-        BTreePage {
+        Self {
             db,
             page_number,
             header,
@@ -137,14 +137,14 @@ impl BTreePage {
     pub(crate) fn into_table_entries_range(
         self,
         range: Range<Option<u64>>,
-    ) -> Result<BTreeTableEntries> {
+    ) -> Result<BTreeTableEntries<'db>> {
         BTreeTableEntries::with_range(self, range)
     }
 
     pub(crate) fn into_index_entries_range<C: PartialOrd<ArcBufSlice>>(
         self,
         comparator: C,
-    ) -> Result<BTreeIndexEntries<C>> {
+    ) -> Result<BTreeIndexEntries<'db, C>> {
         BTreeIndexEntries::with_range(self, comparator)
     }
 }

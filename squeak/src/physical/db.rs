@@ -3,16 +3,15 @@ use std::{
     fmt,
     fs::File,
     io::{Read, Seek, SeekFrom},
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
 use anyhow::{anyhow, Result};
 
 use crate::physical::{btree::BTreePage, buf::ArcBuf, header::Header};
 
-#[derive(Clone)]
 pub struct DB {
-    pub(super) state: Arc<Mutex<DBState>>,
+    pub(super) state: Mutex<DBState>,
 }
 
 #[derive(Debug)]
@@ -37,7 +36,7 @@ impl DB {
         state.header = header;
 
         Ok(Self {
-            state: Arc::new(Mutex::new(state)),
+            state: Mutex::new(state),
         })
     }
 
@@ -45,11 +44,7 @@ impl DB {
         let mut inner = self.state.lock().unwrap();
         let page = inner.page(page_number)?;
 
-        Ok(BTreePage::new(
-            self.clone(),
-            page_number,
-            page.clone().into(),
-        ))
+        Ok(BTreePage::new(self, page_number, page.clone().into()))
     }
 }
 

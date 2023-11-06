@@ -16,10 +16,10 @@ use super::{
     deserialize_record, deserialize_record_with_row_id, Table, TableHandle, WithRowId, WithoutRowId,
 };
 
-pub trait TableRange<T: Table> {
+pub trait TableRange<'db, T: Table> {
     type Output;
 
-    fn range(self, table: &TableHandle<T>) -> Result<Self::Output>;
+    fn range(self, table: &'db TableHandle<'db, T>) -> Result<Self::Output>;
 }
 
 pub struct IndexComparator<I, T> {
@@ -29,12 +29,14 @@ pub struct IndexComparator<I, T> {
 
 struct EqComparator;
 
-type MappedTableEntries<T> = Map<BTreeTableEntries, fn(Result<(u64, ArcBufSlice)>) -> Result<T>>;
+type MappedTableEntries<'db, T> =
+    Map<BTreeTableEntries<'db>, fn(Result<(u64, ArcBufSlice)>) -> Result<T>>;
 
-type MappedIndexEntries<T, C> = Map<BTreeIndexEntries<C>, fn(Result<ArcBufSlice>) -> Result<T>>;
+type MappedIndexEntries<'db, T, C> =
+    Map<BTreeIndexEntries<'db, C>, fn(Result<ArcBufSlice>) -> Result<T>>;
 
-fn table_range_impl<T: WithRowId>(
-    table: &TableHandle<T>,
+fn table_range_impl<'db, T: WithRowId>(
+    table: &'db TableHandle<'db, T>,
     range: impl RangeBounds<u64>,
 ) -> Result<MappedTableEntries<T>> {
     let start = match range.start_bound() {
@@ -53,8 +55,8 @@ fn table_range_impl<T: WithRowId>(
     Ok(rows)
 }
 
-fn index_range_impl<I: WithoutRowId, C: PartialOrd<ArcBufSlice>>(
-    index: &TableHandle<I>,
+fn index_range_impl<'db, I: WithoutRowId, C: PartialOrd<ArcBufSlice>>(
+    index: &'db TableHandle<'db, I>,
     comparator: C,
 ) -> Result<MappedIndexEntries<I, C>> {
     let records = index.rootpage()?.into_index_entries_range(comparator)?;
@@ -107,10 +109,10 @@ fn index_cmp_impl<'a, I: WithoutRowId + 'a>(
 macro_rules! impl_for_range_types {
     ($($range:ident),*) => {
         $(
-            impl<T: WithRowId> TableRange<T> for $range<u64> {
-                type Output = MappedTableEntries<T>;
+            impl<'db, T: WithRowId> TableRange<'db, T> for $range<u64> {
+                type Output = MappedTableEntries<'db, T>;
 
-                fn range(self, table: &TableHandle<T>) -> Result<Self::Output> {
+                fn range(self, table: &'db TableHandle<'db, T>) -> Result<Self::Output> {
                     table_range_impl(table, self)
                 }
             }
@@ -144,7 +146,7 @@ impl PartialOrd<ArcBufSlice> for EqComparator {
     }
 }
 
-impl<T: WithRowId> TableRange<T> for u64 {
+impl<'db, T: WithRowId> TableRange<'db, T> for u64 {
     type Output = Option<T>;
 
     fn range(self, table: &TableHandle<T>) -> Result<Self::Output> {
@@ -152,13 +154,13 @@ impl<T: WithRowId> TableRange<T> for u64 {
     }
 }
 
-impl<I: WithoutRowId, T> TableRange<I> for T
+impl<'db, I: WithoutRowId, T> TableRange<'db, I> for T
 where
     IndexComparator<I, T>: PartialOrd<ArcBufSlice>,
 {
-    type Output = MappedIndexEntries<I, IndexComparator<I, Self>>;
+    type Output = MappedIndexEntries<'db, I, IndexComparator<I, Self>>;
 
-    fn range(self, index: &TableHandle<I>) -> Result<Self::Output> {
+    fn range(self, index: &'db TableHandle<'db, I>) -> Result<Self::Output> {
         index_range_impl(
             index,
             IndexComparator {
@@ -169,7 +171,7 @@ where
     }
 }
 
-impl<I: WithoutRowId> TableRange<I> for &I::SortedFields
+impl<'db, I: WithoutRowId> TableRange<'db, I> for &I::SortedFields
 where
     I::SortedFields: Ord,
 {
@@ -180,19 +182,19 @@ where
     }
 }
 
-impl<T: Table> TableHandle<T> {
-    pub fn get<R: TableRange<T>>(&self, id: R) -> Result<R::Output> {
+impl<'db, T: Table> TableHandle<'db, T> {
+    pub fn get<R: TableRange<'db, T>>(&'db self, id: R) -> Result<R::Output> {
         id.range(self)
     }
 
-    pub fn iter(&self) -> Result<impl Iterator<Item = Result<T>>>
+    pub fn iter(&'db self) -> Result<impl Iterator<Item = Result<T>> + 'db>
     where
         T: WithRowId,
     {
         table_range_impl(self, ..)
     }
 
-    pub fn iter_without_row_id(&self) -> Result<impl Iterator<Item = Result<T>>>
+    pub fn iter_without_row_id(&'db self) -> Result<impl Iterator<Item = Result<T>> + 'db>
     where
         T: WithoutRowId,
     {

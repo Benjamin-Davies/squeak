@@ -68,23 +68,24 @@ fn deserialize_record<T: DeserializeOwned>(buf: ArcBufSlice) -> Result<T> {
 }
 
 #[derive(Debug)]
-pub struct TableHandle<T> {
-    db: DB,
+pub struct TableHandle<'db, T> {
+    db: &'db DB,
     rootpage: u32,
     _marker: PhantomData<T>,
 }
 
-impl<T> Clone for TableHandle<T> {
+// TODO: try derive impl
+impl<'db, T> Clone for TableHandle<'db, T> {
     fn clone(&self) -> Self {
         Self {
-            db: self.db.clone(),
+            db: self.db,
             rootpage: self.rootpage,
             _marker: PhantomData,
         }
     }
 }
 
-impl<T: Table> TableHandle<T> {
+impl<'db, T: Table> TableHandle<'db, T> {
     pub fn get_with_index<I: Index<T>>(&self, matching: &I::SortedFields) -> Result<Option<T>>
     where
         // TODO: Use indexes with non-rowid tables
@@ -121,7 +122,7 @@ impl DB {
         };
 
         Ok(TableHandle {
-            db: self.clone(),
+            db: self,
             rootpage,
             _marker: PhantomData,
         })
