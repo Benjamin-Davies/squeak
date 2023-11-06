@@ -7,16 +7,19 @@ use std::{
 
 use anyhow::Result;
 
-use crate::physical::btree::iter::{BTreeIndexEntries, BTreeTableEntries};
+use crate::physical::{
+    btree::iter::{BTreeIndexEntries, BTreeTableEntries},
+    db::ReadDB,
+};
 
 use super::{
     deserialize_record, deserialize_record_with_row_id, Table, TableHandle, WithRowId, WithoutRowId,
 };
 
-pub trait TableRange<'db, T: Table> {
+pub trait TableRange<'db, T: Table, DB> {
     type Output;
 
-    fn range(self, table: &'db TableHandle<'db, T>) -> Result<Self::Output>;
+    fn range(self, table: &'db TableHandle<'db, T, DB>) -> Result<Self::Output>;
 }
 
 pub struct IndexComparator<I, T> {
@@ -26,16 +29,16 @@ pub struct IndexComparator<I, T> {
 
 struct EqComparator;
 
-type MappedTableEntries<'db, T> =
-    Map<BTreeTableEntries<'db>, fn(Result<(u64, &'db [u8])>) -> Result<T>>;
+type MappedTableEntries<'db, T, DB> =
+    Map<BTreeTableEntries<'db, DB>, fn(Result<(u64, &'db [u8])>) -> Result<T>>;
 
-type MappedIndexEntries<'db, T, C> =
-    Map<BTreeIndexEntries<'db, C>, fn(Result<&'db [u8]>) -> Result<T>>;
+type MappedIndexEntries<'db, T, C, DB> =
+    Map<BTreeIndexEntries<'db, C, DB>, fn(Result<&'db [u8]>) -> Result<T>>;
 
-fn table_range_impl<'db, T: WithRowId>(
-    table: &'db TableHandle<'db, T>,
+fn table_range_impl<'db, T: WithRowId, DB: ReadDB>(
+    table: &'db TableHandle<'db, T, DB>,
     range: impl RangeBounds<u64>,
-) -> Result<MappedTableEntries<T>> {
+) -> Result<MappedTableEntries<T, DB>> {
     let start = match range.start_bound() {
         Bound::Included(&start) => Some(start),
         Bound::Excluded(&start) => Some(start + 1),
@@ -52,10 +55,10 @@ fn table_range_impl<'db, T: WithRowId>(
     Ok(rows)
 }
 
-fn index_range_impl<'db, I: WithoutRowId, C: PartialOrd<[u8]>>(
-    index: &'db TableHandle<'db, I>,
+fn index_range_impl<'db, I: WithoutRowId, C: PartialOrd<[u8]>, DB: ReadDB>(
+    index: &'db TableHandle<'db, I, DB>,
     comparator: C,
-) -> Result<MappedIndexEntries<I, C>> {
+) -> Result<MappedIndexEntries<I, C, DB>> {
     let records = index.rootpage()?.into_index_entries_range(comparator)?;
     let rows = records.map::<_, fn(_) -> _>(|record| deserialize_record(record?));
     Ok(rows)
@@ -106,10 +109,10 @@ fn index_cmp_impl<'a, I: WithoutRowId + 'a>(
 macro_rules! impl_for_range_types {
     ($($range:ident),*) => {
         $(
-            impl<'db, T: WithRowId> TableRange<'db, T> for $range<u64> {
-                type Output = MappedTableEntries<'db, T>;
+            impl<'db, T: WithRowId, DB: ReadDB + 'db> TableRange<'db, T, DB> for $range<u64> {
+                type Output = MappedTableEntries<'db, T, DB>;
 
-                fn range(self, table: &'db TableHandle<'db, T>) -> Result<Self::Output> {
+                fn range(self, table: &'db TableHandle<'db, T, DB>) -> Result<Self::Output> {
                     table_range_impl(table, self)
                 }
             }
@@ -143,21 +146,21 @@ impl PartialOrd<[u8]> for EqComparator {
     }
 }
 
-impl<'db, T: WithRowId> TableRange<'db, T> for u64 {
+impl<'db, T: WithRowId, DB: ReadDB> TableRange<'db, T, DB> for u64 {
     type Output = Option<T>;
 
-    fn range(self, table: &TableHandle<T>) -> Result<Self::Output> {
+    fn range(self, table: &TableHandle<T, DB>) -> Result<Self::Output> {
         table_range_impl(table, self..)?.next().transpose()
     }
 }
 
-impl<'db, I: WithoutRowId, T> TableRange<'db, I> for T
+impl<'db, I: WithoutRowId, T, DB: ReadDB + 'db> TableRange<'db, I, DB> for T
 where
     IndexComparator<I, T>: PartialOrd<[u8]>,
 {
-    type Output = MappedIndexEntries<'db, I, IndexComparator<I, Self>>;
+    type Output = MappedIndexEntries<'db, I, IndexComparator<I, Self>, DB>;
 
-    fn range(self, index: &'db TableHandle<'db, I>) -> Result<Self::Output> {
+    fn range(self, index: &'db TableHandle<'db, I, DB>) -> Result<Self::Output> {
         index_range_impl(
             index,
             IndexComparator {
@@ -168,19 +171,19 @@ where
     }
 }
 
-impl<'db, I: WithoutRowId> TableRange<'db, I> for &I::SortedFields
+impl<'db, I: WithoutRowId, DB: ReadDB> TableRange<'db, I, DB> for &I::SortedFields
 where
     I::SortedFields: Ord,
 {
     type Output = Option<I>;
 
-    fn range(self, index: &TableHandle<I>) -> Result<Self::Output> {
+    fn range(self, index: &TableHandle<I, DB>) -> Result<Self::Output> {
         (self..).range(index)?.next().transpose()
     }
 }
 
-impl<'db, T: Table> TableHandle<'db, T> {
-    pub fn get<R: TableRange<'db, T>>(&'db self, id: R) -> Result<R::Output> {
+impl<'db, T: Table, DB: ReadDB> TableHandle<'db, T, DB> {
+    pub fn get<R: TableRange<'db, T, DB>>(&'db self, id: R) -> Result<R::Output> {
         id.range(self)
     }
 

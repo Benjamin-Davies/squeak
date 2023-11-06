@@ -6,14 +6,14 @@ use zerocopy::{
     FromBytes,
 };
 
-use crate::physical::{buf::Buf, db::DB, header::HEADER_SIZE, varint};
+use crate::physical::{buf::Buf, db::ReadDB, header::HEADER_SIZE, varint};
 
 use self::iter::{BTreeIndexEntries, BTreeTableEntries};
 
 pub mod iter;
 
 #[derive(Debug, Clone)]
-pub struct BTreePage<'db> {
+pub struct BTreePage<'db, DB: ?Sized> {
     db: &'db DB,
     page_number: u32,
     header: BTreePageHeader,
@@ -53,18 +53,20 @@ struct BTreePageHeader {
     right_most_pointer: U16,
 }
 
-impl<'db> BTreePage<'db> {
-    pub(crate) fn new(db: &'db DB, page_number: u32, data: &'db [u8]) -> Self {
+impl<'db, DB: ReadDB> BTreePage<'db, DB> {
+    pub(crate) fn new(db: &'db DB, page_number: u32) -> Result<Self> {
+        let data = db.page(page_number)?;
+
         let start = if page_number == 1 { HEADER_SIZE } else { 0 };
         let header = BTreePageHeader::read_from_prefix(&data[start..]).unwrap();
         header.validate();
 
-        Self {
+        Ok(Self {
             db,
             page_number,
             header,
             data,
-        }
+        })
     }
 
     pub fn page_type(&self) -> BTreePageType {
@@ -137,14 +139,14 @@ impl<'db> BTreePage<'db> {
     pub(crate) fn into_table_entries_range(
         self,
         range: Range<Option<u64>>,
-    ) -> Result<BTreeTableEntries<'db>> {
+    ) -> Result<BTreeTableEntries<'db, DB>> {
         BTreeTableEntries::with_range(self, range)
     }
 
     pub(crate) fn into_index_entries_range<C: PartialOrd<[u8]>>(
         self,
         comparator: C,
-    ) -> Result<BTreeIndexEntries<'db, C>> {
+    ) -> Result<BTreeIndexEntries<'db, C, DB>> {
         BTreeIndexEntries::with_range(self, comparator)
     }
 }

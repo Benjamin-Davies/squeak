@@ -2,26 +2,28 @@ use std::{cmp::Ordering, mem, ops::Range};
 
 use anyhow::Result;
 
+use crate::physical::db::ReadDB;
+
 use super::{BTreePage, BTreePageType};
 
-pub struct BTreeTableEntries<'db> {
-    page: BTreePage<'db>,
+pub struct BTreeTableEntries<'db, DB: ?Sized> {
+    page: BTreePage<'db, DB>,
     index: u16,
-    stack: Vec<(BTreePage<'db>, u16)>,
+    stack: Vec<(BTreePage<'db, DB>, u16)>,
     // Exclusive upper bound
     max_row_id: Option<u64>,
 }
 
-pub struct BTreeIndexEntries<'db, C> {
-    page: BTreePage<'db>,
+pub struct BTreeIndexEntries<'db, C, DB> {
+    page: BTreePage<'db, DB>,
     index: u16,
-    stack: Vec<(BTreePage<'db>, u16)>,
+    stack: Vec<(BTreePage<'db, DB>, u16)>,
     // Used to see if we're inside of the specified range
     comparator: C,
 }
 
-impl<'db> BTreeTableEntries<'db> {
-    pub(super) fn new(page: BTreePage<'db>) -> Self {
+impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
+    pub(super) fn new(page: BTreePage<'db, DB>) -> Self {
         Self {
             page,
             index: 0,
@@ -30,7 +32,7 @@ impl<'db> BTreeTableEntries<'db> {
         }
     }
 
-    pub(super) fn with_range(page: BTreePage<'db>, range: Range<Option<u64>>) -> Result<Self> {
+    pub(super) fn with_range(page: BTreePage<'db, DB>, range: Range<Option<u64>>) -> Result<Self> {
         let mut entries = Self::new(page);
 
         if let Some(start) = range.start {
@@ -57,7 +59,7 @@ impl<'db> BTreeTableEntries<'db> {
                     }
 
                     let (child_page_number, _id) = self.page.interior_table_cell(child_page_index);
-                    let child_page = self.page.db.btree_page(child_page_number)?;
+                    let child_page = BTreePage::new(self.page.db, child_page_number)?;
                     let parent_page = mem::replace(&mut self.page, child_page);
                     self.stack.push((parent_page, child_page_index + 1));
                 }
@@ -81,7 +83,7 @@ impl<'db> BTreeTableEntries<'db> {
     }
 }
 
-impl<'db> Iterator for BTreeTableEntries<'db> {
+impl<'db, DB: ReadDB> Iterator for BTreeTableEntries<'db, DB> {
     type Item = Result<(u64, &'db [u8])>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -92,7 +94,7 @@ impl<'db> Iterator for BTreeTableEntries<'db> {
                         let (page_number, _row_id) = self.page.interior_table_cell(self.index);
                         self.index += 1;
 
-                        let mut page = match self.page.db.btree_page(page_number) {
+                        let mut page = match BTreePage::new(self.page.db, page_number) {
                             Ok(page) => page,
                             Err(err) => return Some(Err(err)),
                         };
@@ -124,8 +126,8 @@ impl<'db> Iterator for BTreeTableEntries<'db> {
     }
 }
 
-impl<'db, C: PartialOrd<[u8]>> BTreeIndexEntries<'db, C> {
-    pub(super) fn with_range(page: BTreePage<'db>, comparator: C) -> Result<Self> {
+impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> BTreeIndexEntries<'db, C, DB> {
+    pub(super) fn with_range(page: BTreePage<'db, DB>, comparator: C) -> Result<Self> {
         let mut entries = Self {
             page,
             index: 0,
@@ -154,7 +156,7 @@ impl<'db, C: PartialOrd<[u8]>> BTreeIndexEntries<'db, C> {
                     }
 
                     let (child_page_number, _key) = self.page.interior_index_cell(child_page_index);
-                    let child_page = self.page.db.btree_page(child_page_number)?;
+                    let child_page = BTreePage::new(self.page.db, child_page_number)?;
                     let parent_page = mem::replace(&mut self.page, child_page);
                     self.stack.push((parent_page, child_page_index + 1));
                 }
@@ -178,7 +180,7 @@ impl<'db, C: PartialOrd<[u8]>> BTreeIndexEntries<'db, C> {
     }
 }
 
-impl<'db, C: PartialOrd<[u8]>> Iterator for BTreeIndexEntries<'db, C> {
+impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> Iterator for BTreeIndexEntries<'db, C, DB> {
     type Item = Result<&'db [u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -189,7 +191,7 @@ impl<'db, C: PartialOrd<[u8]>> Iterator for BTreeIndexEntries<'db, C> {
                         let (page_number, _payload) = self.page.interior_index_cell(self.index);
                         self.index += 1;
 
-                        let mut page = match self.page.db.btree_page(page_number) {
+                        let mut page = match BTreePage::new(self.page.db, page_number) {
                             Ok(page) => page,
                             Err(err) => return Some(Err(err)),
                         };

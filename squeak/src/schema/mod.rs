@@ -7,7 +7,7 @@ use serde::{
 };
 use squeak_macros::Table;
 
-use crate::physical::{btree::BTreePage, db::DB};
+use crate::physical::{btree::BTreePage, db::ReadDB};
 
 use self::record::Record;
 
@@ -68,13 +68,13 @@ fn deserialize_record<T: DeserializeOwned>(buf: &[u8]) -> Result<T> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct TableHandle<'db, T> {
+pub struct TableHandle<'db, T, DB: ?Sized> {
     db: &'db DB,
     rootpage: u32,
     _marker: PhantomData<T>,
 }
 
-impl<'db, T: Table> TableHandle<'db, T> {
+impl<'db, T: Table, DB: ReadDB> TableHandle<'db, T, DB> {
     pub fn get_with_index<I: Index<T>>(&self, matching: &I::SortedFields) -> Result<Option<T>>
     where
         // TODO: Use indexes with non-rowid tables
@@ -89,13 +89,17 @@ impl<'db, T: Table> TableHandle<'db, T> {
         Ok(row)
     }
 
-    pub(crate) fn rootpage(&self) -> Result<BTreePage> {
-        self.db.btree_page(self.rootpage)
+    pub(crate) fn rootpage(&self) -> Result<BTreePage<DB>> {
+        BTreePage::new(self.db, self.rootpage)
     }
 }
 
-impl DB {
-    pub fn table<T: Table>(&self) -> Result<TableHandle<T>> {
+pub trait ReadSchema: ReadDB {
+    fn table<T: Table>(&self) -> Result<TableHandle<T, Self>>;
+}
+
+impl<DB: ReadDB> ReadSchema for DB {
+    fn table<T: Table>(&self) -> Result<TableHandle<T, DB>> {
         let rootpage = if T::NAME == Schema::NAME {
             1
         } else {
@@ -220,6 +224,24 @@ mod tests {
         assert_eq!(Strings::NAME, "strings");
 
         let table = db.table::<Strings>().unwrap();
+        let entry = table
+            .get_with_index::<StringsPK>(&("bar".to_owned(),))
+            .unwrap();
+        assert_eq!(
+            entry,
+            Some(Strings {
+                string: "bar".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_search_with_index_in_transaction() {
+        let mut db = DB::open("examples/string_index.db").unwrap();
+
+        let transaction = db.begin_transaction();
+
+        let table = transaction.table::<Strings>().unwrap();
         let entry = table
             .get_with_index::<StringsPK>(&("bar".to_owned(),))
             .unwrap();

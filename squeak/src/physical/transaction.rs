@@ -2,7 +2,10 @@ use std::collections::{btree_map::Entry, BTreeMap};
 
 use anyhow::Result;
 
-use super::{db::DB, freelist};
+use super::{
+    db::{ReadDB, DB},
+    freelist,
+};
 
 pub struct Transaction<'a> {
     db: &'a mut DB,
@@ -28,10 +31,8 @@ impl DB {
     }
 }
 
-// TODO: Remove once we start using these functions
-#[allow(unused)]
-impl<'a> Transaction<'a> {
-    pub(crate) fn page(&self, page_number: u32) -> Result<&[u8]> {
+impl<'a> ReadDB for Transaction<'a> {
+    fn page(&self, page_number: u32) -> Result<&[u8]> {
         if let Some(dirty_page) = self.dirty_pages.get(&page_number) {
             Ok(dirty_page)
         } else {
@@ -40,7 +41,11 @@ impl<'a> Transaction<'a> {
             Ok(page)
         }
     }
+}
 
+// TODO: Remove once we start using these functions
+#[allow(unused)]
+impl<'a> Transaction<'a> {
     pub(crate) fn page_mut(&mut self, page_number: u32) -> Result<&mut [u8]> {
         match self.dirty_pages.entry(page_number) {
             Entry::Vacant(entry) => {

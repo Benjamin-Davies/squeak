@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use squeak::{
     physical::db::DB,
-    schema::{serialization::row_id, SchemaType, Table, WithRowId},
+    schema::{serialization::row_id, ReadSchema, SchemaType, Table, WithRowId},
 };
 use squeak_macros::Table;
 

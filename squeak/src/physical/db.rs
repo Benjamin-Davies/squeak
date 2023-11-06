@@ -8,10 +8,13 @@ use std::{
 use anyhow::{anyhow, Result};
 
 use crate::physical::{
-    btree::BTreePage,
     header::Header,
     shared_append_map::{Entry, SharedAppendMap},
 };
+
+pub trait ReadDB {
+    fn page(&self, page_number: u32) -> Result<&[u8]>;
+}
 
 pub struct DB {
     pub(super) file: Mutex<File>,
@@ -38,14 +41,10 @@ impl DB {
 
         Ok(db)
     }
+}
 
-    pub(crate) fn btree_page(&self, page_number: u32) -> Result<BTreePage> {
-        let page = self.page(page_number)?;
-
-        Ok(BTreePage::new(self, page_number, page))
-    }
-
-    pub(crate) fn page(&self, page_number: u32) -> Result<&[u8]> {
+impl ReadDB for DB {
+    fn page(&self, page_number: u32) -> Result<&[u8]> {
         let entry = self.pages.entry(page_number);
         let page = match entry {
             Entry::Occupied(entry) => entry,
@@ -77,7 +76,7 @@ impl fmt::Debug for DB {
 
 #[cfg(test)]
 mod tests {
-    use crate::physical::btree::BTreePageType;
+    use crate::physical::btree::{BTreePage, BTreePageType};
 
     use super::*;
 
@@ -91,7 +90,7 @@ mod tests {
     fn test_read_btree() {
         let db = DB::open("examples/empty.db").unwrap();
 
-        let root = db.btree_page(1).unwrap();
+        let root = BTreePage::new(&db, 1).unwrap();
         assert_eq!(root.page_type(), BTreePageType::LeafTable);
 
         let cell = root.leaf_table_cell(0);
