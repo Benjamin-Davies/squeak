@@ -17,7 +17,7 @@ pub trait ReadDB {
 }
 
 pub struct DB {
-    pub(super) file: Mutex<File>,
+    pub(super) file: Option<Mutex<File>>,
     pub(super) pages: SharedAppendMap<u32, [u8]>,
     pub(super) header: Header,
 }
@@ -30,7 +30,7 @@ impl DB {
         header.validate();
 
         Ok(Self {
-            file: Mutex::new(file),
+            file: Some(Mutex::new(file)),
             pages: SharedAppendMap::new(),
             header,
         })
@@ -53,10 +53,12 @@ impl ReadDB for DB {
 
                 let page_size = self.header.page_size();
 
-                let mut file = self.file.lock().unwrap();
                 let mut page = vec![0; page_size as usize];
-                file.seek(SeekFrom::Start((page_number as u64 - 1) * page_size as u64))?;
-                file.read_exact(&mut page)?;
+                if let Some(file) = self.file.as_ref() {
+                    let mut file = file.lock().unwrap();
+                    file.seek(SeekFrom::Start((page_number as u64 - 1) * page_size as u64))?;
+                    file.read_exact(&mut page)?;
+                }
 
                 entry.insert(page)
             }

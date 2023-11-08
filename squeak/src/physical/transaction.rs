@@ -20,12 +20,14 @@ impl DB {
     pub fn begin_transaction(&mut self) -> Result<Transaction> {
         let db = self;
 
-        let file = db.file.get_mut().unwrap();
-        let new_header = Header::read(file)?;
-        if new_header.file_change_counter() != db.header.file_change_counter() {
-            db.clear_cache();
+        if let Some(file) = db.file.as_mut() {
+            let file = file.get_mut().unwrap();
+            let new_header = Header::read(file)?;
+            if new_header.file_change_counter() != db.header.file_change_counter() {
+                db.clear_cache();
+            }
+            db.header = new_header;
         }
-        db.header = new_header;
 
         let database_size = db.header.database_size();
         let freelist_head = db.header.freelist_head();
