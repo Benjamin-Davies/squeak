@@ -11,7 +11,7 @@ pub struct BTreeTableEntries<'db, DB: ?Sized> {
     index: u16,
     stack: Vec<(BTreePage<'db, DB>, u16)>,
     // Exclusive upper bound
-    max_row_id: Option<u64>,
+    max_row_id: Option<i64>,
 }
 
 pub struct BTreeIndexEntries<'db, C, DB> {
@@ -32,7 +32,7 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
         }
     }
 
-    pub(super) fn with_range(page: BTreePage<'db, DB>, range: Range<Option<u64>>) -> Result<Self> {
+    pub(super) fn with_range(page: BTreePage<'db, DB>, range: Range<Option<i64>>) -> Result<Self> {
         let mut entries = Self::new(page);
 
         if let Some(start) = range.start {
@@ -43,7 +43,7 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
         Ok(entries)
     }
 
-    fn seek(&mut self, row_id: u64) -> Result<()> {
+    fn seek(&mut self, row_id: i64) -> Result<()> {
         loop {
             match self.page.page_type() {
                 BTreePageType::InteriorTable => {
@@ -84,7 +84,7 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
 }
 
 impl<'db, DB: ReadDB> Iterator for BTreeTableEntries<'db, DB> {
-    type Item = Result<(u64, &'db [u8])>;
+    type Item = Result<(i64, &'db [u8])>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {

@@ -30,14 +30,14 @@ pub struct IndexComparator<I, T> {
 struct EqComparator;
 
 type MappedTableEntries<'db, T, DB> =
-    Map<BTreeTableEntries<'db, DB>, fn(Result<(u64, &'db [u8])>) -> Result<T>>;
+    Map<BTreeTableEntries<'db, DB>, fn(Result<(i64, &'db [u8])>) -> Result<T>>;
 
 type MappedIndexEntries<'db, T, C, DB> =
     Map<BTreeIndexEntries<'db, C, DB>, fn(Result<&'db [u8]>) -> Result<T>>;
 
 fn table_range_impl<'db, T: WithRowId, DB: ReadDB>(
     table: &'db TableHandle<'db, T, DB>,
-    range: impl RangeBounds<u64>,
+    range: impl RangeBounds<i64>,
 ) -> Result<MappedTableEntries<T, DB>> {
     let start = match range.start_bound() {
         Bound::Included(&start) => Some(start),
@@ -109,7 +109,7 @@ fn index_cmp_impl<'a, I: WithoutRowId + 'a>(
 macro_rules! impl_for_range_types {
     ($($range:ident),*) => {
         $(
-            impl<'db, T: WithRowId, DB: ReadDB + 'db> TableRange<'db, T, DB> for $range<u64> {
+            impl<'db, T: WithRowId, DB: ReadDB + 'db> TableRange<'db, T, DB> for $range<i64> {
                 type Output = MappedTableEntries<'db, T, DB>;
 
                 fn range(self, table: &'db TableHandle<'db, T, DB>) -> Result<Self::Output> {
@@ -146,7 +146,7 @@ impl PartialOrd<[u8]> for EqComparator {
     }
 }
 
-impl<'db, T: WithRowId, DB: ReadDB> TableRange<'db, T, DB> for u64 {
+impl<'db, T: WithRowId, DB: ReadDB> TableRange<'db, T, DB> for i64 {
     type Output = Option<T>;
 
     fn range(self, table: &TableHandle<T, DB>) -> Result<Self::Output> {

@@ -102,7 +102,7 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
         data
     }
 
-    pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (u64, &'db [u8]) {
+    pub(crate) fn leaf_table_cell(&self, cell_index: u16) -> (i64, &'db [u8]) {
         assert_eq!(self.page_type(), BTreePageType::LeafTable);
 
         // TODO: Handle when a cell overflows onto a separate page.
@@ -114,7 +114,7 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
         (row_id, cell)
     }
 
-    pub(crate) fn interior_table_cell(&self, cell_index: u16) -> (u32, u64) {
+    pub(crate) fn interior_table_cell(&self, cell_index: u16) -> (u32, i64) {
         assert_eq!(self.page_type(), BTreePageType::InteriorTable);
 
         let cell = self.cell(cell_index);
@@ -149,7 +149,7 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
 
     pub(crate) fn into_table_entries_range(
         self,
-        range: Range<Option<u64>>,
+        range: Range<Option<i64>>,
     ) -> Result<BTreeTableEntries<'db, DB>> {
         BTreeTableEntries::with_range(self, range)
     }

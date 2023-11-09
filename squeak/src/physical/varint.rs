@@ -1,4 +1,4 @@
-pub fn read(bytes: &[u8]) -> (u64, usize) {
+pub fn read(bytes: &[u8]) -> (i64, usize) {
     let mut result = 0;
     let mut i = 0;
 
@@ -20,7 +20,7 @@ pub fn read(bytes: &[u8]) -> (u64, usize) {
         i += 1;
     }
 
-    (result, i + 1)
+    (result as i64, i + 1)
 }
 
 #[cfg(test)]
@@ -32,6 +32,6 @@ mod tests {
         assert_eq!(read(&[0x01]), (1, 1));
         assert_eq!(read(&[0x80, 0x40]), (64, 2));
         assert_eq!(read(&[0x80; 9]), (128, 9));
-        assert_eq!(read(&[0xff; 9]), (u64::MAX, 9));
+        assert_eq!(read(&[0xff; 9]), (-1, 9));
     }
 }

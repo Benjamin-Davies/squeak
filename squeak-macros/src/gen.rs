@@ -14,7 +14,7 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
     let row_id_fn = if let Some(row_id_field) = row_id_field {
         let row_id_ident = row_id_field.ident.as_ref().unwrap();
         Some(quote!(
-            fn deserialize_row_id(&mut self, row_id: u64) {
+            fn deserialize_row_id(&mut self, row_id: i64) {
                 self.#row_id_ident = row_id;
             }
         ))
@@ -43,7 +43,7 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
             #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
             struct #pk_index_ident {
                 #pk_field_ident: #pk_field_ty,
-                key: u64,
+                key: i64,
             }
 
             impl Table for #pk_index_ident {
@@ -60,7 +60,7 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
             }
 
             impl Index<#ident> for #pk_index_ident {
-                fn get_row_id(&self) -> u64 {
+                fn get_row_id(&self) -> i64 {
                     self.key
                 }
             }

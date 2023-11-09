@@ -12,7 +12,7 @@ use crate::schema::record::{iter::SerialValueIterator, Record, SerialValue};
 pub mod row_id {
     use serde::{Deserialize, Deserializer};
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
         Option::deserialize(deserializer).map(|o| o.unwrap_or(0))
     }
 }

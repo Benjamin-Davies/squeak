@@ -3,7 +3,7 @@ use crate::physical::{buf::Buf, varint};
 use super::{SerialType, SerialValue};
 
 pub struct SerialTypeIterator<'a> {
-    header_len: u64,
+    header_len: i64,
     data: &'a [u8],
 }
 

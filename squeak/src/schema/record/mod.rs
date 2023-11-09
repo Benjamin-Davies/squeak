@@ -73,8 +73,8 @@ impl<'a> fmt::Debug for Record<'a> {
     }
 }
 
-impl From<u64> for SerialType {
-    fn from(value: u64) -> Self {
+impl From<i64> for SerialType {
+    fn from(value: i64) -> Self {
         match value {
             0 => Self::Null,
             1 => Self::I8,
@@ -87,8 +87,8 @@ impl From<u64> for SerialType {
             8 => Self::Zero,
             9 => Self::One,
             10 | 11 => panic!("encountered internal use column type"),
-            n if n % 2 == 0 => Self::Blob((n - 12) / 2),
-            n => Self::Text((n - 13) / 2),
+            n if n % 2 == 0 => Self::Blob((n - 12) as u64 / 2),
+            n => Self::Text((n - 13) as u64 / 2),
         }
     }
 }

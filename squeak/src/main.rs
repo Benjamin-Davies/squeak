@@ -13,7 +13,7 @@ use squeak_macros::Table;
 struct Crash {
     #[table(row_id)]
     #[serde(with = "row_id")]
-    id: u64,
+    id: i64,
     _year: i32,
     _lat: f64,
     _lng: f64,

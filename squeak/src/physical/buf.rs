@@ -6,7 +6,7 @@ pub trait Buf: Deref<Target = [u8]> {
     fn consume_bytes(&mut self, count: usize) -> &[u8];
     fn truncate(&mut self, new_len: usize);
 
-    fn consume_varint(&mut self) -> u64 {
+    fn consume_varint(&mut self) -> i64 {
         let (result, len) = varint::read(self);
         self.consume_bytes(len);
         result

@@ -41,7 +41,7 @@ pub trait Table: DeserializeOwned {
 }
 
 pub trait WithRowId: Table {
-    fn deserialize_row_id(&mut self, _row_id: u64) {}
+    fn deserialize_row_id(&mut self, _row_id: i64) {}
 }
 
 pub trait WithoutRowId: Table {
@@ -51,10 +51,10 @@ pub trait WithoutRowId: Table {
 }
 
 pub trait Index<T: Table>: WithoutRowId {
-    fn get_row_id(&self) -> u64;
+    fn get_row_id(&self) -> i64;
 }
 
-fn deserialize_record_with_row_id<T: WithRowId>((row_id, buf): (u64, &[u8])) -> Result<T> {
+fn deserialize_record_with_row_id<T: WithRowId>((row_id, buf): (i64, &[u8])) -> Result<T> {
     let record = Record::from(buf);
     let mut value = T::deserialize(record.into_deserializer())?;
     value.deserialize_row_id(row_id);
