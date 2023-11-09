@@ -46,4 +46,7 @@ fn main() {
 
     let crash_100 = crashes_table.get(100).unwrap();
     dbg!(crash_100);
+
+    let mut db = DB::new();
+    db.save_as("empty.db").unwrap();
 }

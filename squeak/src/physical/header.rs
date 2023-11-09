@@ -1,9 +1,16 @@
-use std::io::{Read, Seek, SeekFrom};
+use std::{
+    array,
+    io::{Read, Seek, SeekFrom},
+};
 
 use anyhow::Result;
-use zerocopy::{big_endian::U32, little_endian, FromBytes, FromZeroes};
+use zerocopy::{
+    big_endian::{I32, U32},
+    little_endian, FromBytes,
+};
 
 const HEADER_STRING: [u8; 16] = *b"SQLite format 3\0";
+const SQLITE_VERSION_NUMBER: u32 = 3_042_000;
 pub const HEADER_SIZE: usize = 100;
 
 #[derive(
@@ -42,16 +49,59 @@ pub struct Header {
     freelist_head: U32,
     /// Total number of freelist pages.
     freelist_count: U32,
-    // The rest of the header is irrelevant for our purposes.
+    /// The schema cookie.
+    schema_cookie: U32,
+    /// The schema format number. Supported schema formats are 1, 2, 3, and 4.
+    schema_format: U32,
+    /// Default page cache size.
+    page_cache_size: I32,
+    /// The page number of the largest root b-tree page when in auto-vacuum or incremental-vacuum modes, or zero otherwise.
+    largest_root_btree_page_number: U32,
+    /// The database text encoding. A value of 1 means UTF-8. A value of 2 means UTF-16le. A value of 3 means UTF-16be.
+    database_text_encoding: U32,
+    /// The user version.
+    user_version: U32,
+    /// True (non-zero) for incremental-vacuum mode. False (zero) otherwise.
+    incremental_vacuum_mode: U32,
+    /// The application ID.
+    application_id: U32,
+    /// Reserved for expansion. Must be zero.
+    reserved: [u8; 20],
+    /// The version-valid-for number.
+    version_valid_for: U32,
+    /// The SQLite version number.
+    sqlite_version_number: U32,
 }
 
 impl Default for Header {
     fn default() -> Self {
         Self {
             header_string: HEADER_STRING,
-            page_size: 2.into(),
+            // https://www.sqlite.org/pgszchng2016.html
+            // 4096 is the default page size for SQLite 3.12.0 and later.
+            // 16 * 256 = 4096
+            page_size: 16.into(),
+            write_version: 1,
+            read_version: 1,
+            reserved_space: 0,
+            max_payload_fraction: 64,
+            min_payload_fraction: 32,
+            leaf_payload_fraction: 32,
+            file_change_counter: 1.into(),
             database_size: 1.into(),
-            ..FromZeroes::new_zeroed()
+            freelist_head: 0.into(),
+            freelist_count: 0.into(),
+            schema_cookie: 0.into(),
+            schema_format: 4.into(),
+            page_cache_size: 0.into(),
+            largest_root_btree_page_number: 0.into(),
+            database_text_encoding: 1.into(),
+            user_version: 0.into(),
+            incremental_vacuum_mode: 0.into(),
+            application_id: 0.into(),
+            reserved: array::from_fn(|_| 0),
+            version_valid_for: 0.into(),
+            sqlite_version_number: SQLITE_VERSION_NUMBER.into(),
         }
     }
 }
@@ -62,7 +112,7 @@ impl Header {
         reader.seek(SeekFrom::Start(0))?;
         reader.read_exact(&mut bytes)?;
 
-        let header = Self::read_from_prefix(&bytes).unwrap();
+        let header = Self::read_from(&bytes).unwrap();
         header.validate();
         Ok(header)
     }
@@ -80,6 +130,10 @@ impl Header {
         assert_eq!(self.max_payload_fraction, 64);
         assert_eq!(self.min_payload_fraction, 32);
         assert_eq!(self.leaf_payload_fraction, 32);
+        assert_eq!(self.schema_format.get(), 4);
+        assert_eq!(self.largest_root_btree_page_number.get(), 0);
+        assert_eq!(self.database_text_encoding.get(), 1);
+        assert_eq!(self.incremental_vacuum_mode.get(), 0);
     }
 
     pub(crate) fn page_size(&self) -> u32 {

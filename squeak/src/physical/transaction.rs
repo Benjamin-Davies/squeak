@@ -1,6 +1,7 @@
 use std::collections::{btree_map::Entry, BTreeMap};
 
 use anyhow::Result;
+use zerocopy::AsBytes;
 
 use crate::physical::{
     db::{ReadDB, DB},
@@ -92,9 +93,11 @@ impl<'a> Transaction<'a> {
             // TODO: Write page to disk
             db.pages.insert_or_replace(page_num, page);
         }
+
         db.header.set_database_size(self.database_size);
         db.header.set_freelist_head(self.freelist_head);
         db.header.set_freelist_count(self.freelist_count);
+        db.header.write_to_prefix(db.pages.get_mut(&1).unwrap());
 
         // TODO: Update db header and flush journal or WAL
     }

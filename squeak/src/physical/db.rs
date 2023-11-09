@@ -1,16 +1,20 @@
 use std::{
     fmt,
     fs::File,
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
+    path::Path,
     sync::Mutex,
 };
 
 use anyhow::{anyhow, Result};
+use zerocopy::AsBytes;
 
 use crate::physical::{
     header::Header,
     shared_append_map::{Entry, SharedAppendMap},
 };
+
+use super::btree::{BTreePageMut, BTreePageType};
 
 pub trait ReadDB {
     fn page(&self, page_number: u32) -> Result<&[u8]>;
@@ -36,8 +40,40 @@ impl DB {
         })
     }
 
+    pub fn new() -> Self {
+        let header = Header::default();
+
+        let mut first_page = vec![0; header.page_size() as usize];
+        header.write_to_prefix(&mut first_page).unwrap();
+
+        let _first_page = BTreePageMut::empty(1, BTreePageType::LeafTable, &mut first_page);
+
+        let mut pages = SharedAppendMap::new();
+        pages.insert_or_replace(1, first_page);
+
+        Self {
+            file: None,
+            pages,
+            header,
+        }
+    }
+
+    pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        let mut file = File::create(path)?;
+
+        for page_number in 1..=self.header.database_size() {
+            let page = self.page(page_number)?;
+            file.write_all(page)?;
+        }
+
+        self.file = Some(Mutex::new(file));
+        Ok(())
+    }
+
     pub fn clear_cache(&mut self) {
-        self.pages = SharedAppendMap::new();
+        if self.file.is_some() {
+            self.pages = SharedAppendMap::new();
+        }
     }
 }
 
@@ -95,5 +131,14 @@ mod tests {
 
         let cell = root.leaf_table_cell(0);
         assert_eq!(cell.0, 1);
+    }
+
+    #[test]
+    fn test_new() {
+        let db = DB::new();
+
+        let root = BTreePage::new(&db, 1).unwrap();
+        assert_eq!(root.page_type(), BTreePageType::LeafTable);
+        assert_eq!(root.cell_count(), 0);
     }
 }

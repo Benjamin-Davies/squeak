@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     collections::BTreeMap,
     ptr::NonNull,
     sync::{RwLock, RwLockWriteGuard},
@@ -54,6 +55,19 @@ impl<K, V: ?Sized> SharedAppendMap<K, V> {
         old.map(|old| unsafe {
             // SAFETY: Pointer valid.
             Box::from_raw(old.as_ptr())
+        })
+    }
+
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q> + Ord,
+        Q: Ord,
+    {
+        let mut inner = self.inner.write().unwrap();
+
+        inner.get_mut(key).map(|ptr| unsafe {
+            // SAFETY: Pointer valid until the map is borrowed mutably.
+            ptr.as_mut()
         })
     }
 }

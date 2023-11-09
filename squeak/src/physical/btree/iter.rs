@@ -49,7 +49,7 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
                 BTreePageType::InteriorTable => {
                     // TODO: binary search
                     let mut child_page_index = 0;
-                    for index in 0..self.page.header.cell_count.get() {
+                    for index in 0..self.page.cell_count() {
                         let (_page_number, current_id) = self.page.interior_table_cell(index);
                         if current_id > row_id {
                             break;
@@ -66,7 +66,7 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
                 BTreePageType::LeafTable => {
                     // TODO: binary search
                     let mut leaf_index = 0;
-                    for index in 0..self.page.header.cell_count.get() {
+                    for index in 0..self.page.cell_count() {
                         let (current_id, _data) = self.page.leaf_table_cell(index);
                         if current_id > row_id {
                             break;
@@ -88,7 +88,7 @@ impl<'db, DB: ReadDB> Iterator for BTreeTableEntries<'db, DB> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if self.index < self.page.header.cell_count.get() {
+            if self.index < self.page.cell_count() {
                 match self.page.page_type() {
                     BTreePageType::InteriorTable => {
                         let (page_number, _row_id) = self.page.interior_table_cell(self.index);
@@ -146,7 +146,7 @@ impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> BTreeIndexEntries<'db, C, DB> {
                 BTreePageType::InteriorIndex => {
                     // TODO: binary search
                     let mut child_page_index = 0;
-                    for index in 0..self.page.header.cell_count.get() {
+                    for index in 0..self.page.cell_count() {
                         let (_page_number, current_key) = self.page.interior_index_cell(index);
                         if self.comparator < *current_key {
                             child_page_index = index;
@@ -163,7 +163,7 @@ impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> BTreeIndexEntries<'db, C, DB> {
                 BTreePageType::LeafIndex => {
                     // TODO: binary search
                     let mut leaf_index = 0;
-                    for index in 0..self.page.header.cell_count.get() {
+                    for index in 0..self.page.cell_count() {
                         let current_key = self.page.leaf_index_cell(index);
                         if self.comparator < *current_key {
                             leaf_index = index;
@@ -185,7 +185,7 @@ impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> Iterator for BTreeIndexEntries<'db, C
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if self.index < self.page.header.cell_count.get() {
+            if self.index < self.page.cell_count() {
                 match self.page.page_type() {
                     BTreePageType::InteriorIndex => {
                         let (page_number, _payload) = self.page.interior_index_cell(self.index);

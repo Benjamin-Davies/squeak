@@ -1,9 +1,9 @@
-use std::ops::Range;
+use std::{mem, ops::Range};
 
 use anyhow::Result;
 use zerocopy::{
     big_endian::{U16, U32},
-    FromBytes,
+    AsBytes, FromBytes,
 };
 
 use crate::physical::{buf::Buf, db::ReadDB, header::HEADER_SIZE, varint};
@@ -18,6 +18,13 @@ pub struct BTreePage<'db, DB: ?Sized> {
     page_number: u32,
     header: BTreePageHeader,
     data: &'db [u8],
+}
+
+#[derive(Debug)]
+pub struct BTreePageMut<'a> {
+    page_number: u32,
+    header: BTreePageHeader,
+    data: &'a mut [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +45,7 @@ pub enum BTreePageType {
     zerocopy::Unaligned,
 )]
 #[repr(C)]
-struct BTreePageHeader {
+pub struct BTreePageHeader {
     /// The b-tree page type.
     flags: u8,
     /// The start of the first freeblock on the page, or 0 if there are no freeblocks.
@@ -73,8 +80,12 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
         self.header.page_type()
     }
 
+    pub fn cell_count(&self) -> u16 {
+        self.header.cell_count.get()
+    }
+
     fn cell_pointer(&self, cell_index: u16) -> u16 {
-        assert!(cell_index < self.header.cell_count.get());
+        assert!(cell_index < self.cell_count());
         let start = if self.page_number == 1 {
             HEADER_SIZE
         } else {
@@ -151,6 +162,29 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
     }
 }
 
+impl<'a> BTreePageMut<'a> {
+    pub fn empty(page_number: u32, page_type: BTreePageType, data: &'a mut [u8]) -> Self {
+        let start = if page_number == 1 { HEADER_SIZE } else { 0 };
+
+        let header = BTreePageHeader {
+            flags: page_type.into(),
+            first_freeblock: ((start + mem::size_of::<BTreePageHeader>()) as u16).into(),
+            cell_count: 0.into(),
+            cell_content_start: (data.len() as u16).into(),
+            fragmented_free_bytes: 0,
+            right_most_pointer: 0.into(),
+        };
+
+        header.write_to_prefix(&mut data[start..]).unwrap();
+
+        Self {
+            page_number,
+            header,
+            data,
+        }
+    }
+}
+
 impl BTreePageType {
     fn is_leaf(self) -> bool {
         match self {
@@ -160,19 +194,38 @@ impl BTreePageType {
     }
 }
 
+impl TryFrom<u8> for BTreePageType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x02 => Ok(BTreePageType::InteriorIndex),
+            0x05 => Ok(BTreePageType::InteriorTable),
+            0x0a => Ok(BTreePageType::LeafIndex),
+            0x0d => Ok(BTreePageType::LeafTable),
+            _ => Err(anyhow::anyhow!("Invalid b-tree page type: {}", value)),
+        }
+    }
+}
+
+impl From<BTreePageType> for u8 {
+    fn from(value: BTreePageType) -> Self {
+        match value {
+            BTreePageType::InteriorIndex => 0x02,
+            BTreePageType::InteriorTable => 0x05,
+            BTreePageType::LeafIndex => 0x0a,
+            BTreePageType::LeafTable => 0x0d,
+        }
+    }
+}
+
 impl BTreePageHeader {
     fn validate(&self) {
-        assert!([0x02, 0x05, 0x0a, 0x0d].contains(&self.flags));
+        let _ = self.page_type();
     }
 
     fn page_type(&self) -> BTreePageType {
-        match self.flags {
-            0x02 => BTreePageType::InteriorIndex,
-            0x05 => BTreePageType::InteriorTable,
-            0x0a => BTreePageType::LeafIndex,
-            0x0d => BTreePageType::LeafTable,
-            _ => unreachable!(),
-        }
+        self.flags.try_into().unwrap()
     }
 
     fn size(&self) -> u16 {
