@@ -1,4 +1,4 @@
-use std::{mem, ops::Range};
+use std::ops::Range;
 
 use anyhow::Result;
 use zerocopy::{
@@ -168,7 +168,7 @@ impl<'a> BTreePageMut<'a> {
 
         let header = BTreePageHeader {
             flags: page_type.into(),
-            first_freeblock: ((start + mem::size_of::<BTreePageHeader>()) as u16).into(),
+            first_freeblock: (start as u16 + page_type.header_size()).into(),
             cell_count: 0.into(),
             cell_content_start: (data.len() as u16).into(),
             fragmented_free_bytes: 0,
@@ -190,6 +190,14 @@ impl BTreePageType {
         match self {
             BTreePageType::InteriorIndex | BTreePageType::InteriorTable => false,
             BTreePageType::LeafIndex | BTreePageType::LeafTable => true,
+        }
+    }
+
+    fn header_size(self) -> u16 {
+        if self.is_leaf() {
+            8
+        } else {
+            12
         }
     }
 }
@@ -229,10 +237,6 @@ impl BTreePageHeader {
     }
 
     fn size(&self) -> u16 {
-        if self.page_type().is_leaf() {
-            8
-        } else {
-            12
-        }
+        self.page_type().header_size()
     }
 }
