@@ -91,6 +91,7 @@ impl<'a> Transaction<'a> {
     pub fn commit(self) {
         let mut db = self.db;
         for (page_num, page) in self.dirty_pages {
+            dbg!(page_num, page.len());
             // TODO: Write page to disk
             db.pages.insert_or_replace(page_num, page);
         }

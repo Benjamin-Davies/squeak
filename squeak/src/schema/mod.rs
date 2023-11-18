@@ -87,8 +87,8 @@ pub struct TableHandle<'db, T, DB: ?Sized> {
 }
 
 #[derive(Debug)]
-pub struct TableHandleMut<'db, T> {
-    transaction: &'db mut Transaction<'db>,
+pub struct TableHandleMut<'a, 'db, T> {
+    transaction: &'a mut Transaction<'db>,
     rootpage: u32,
     _marker: PhantomData<T>,
 }
@@ -113,7 +113,7 @@ impl<'db, T: Table, DB: ReadDB> TableHandle<'db, T, DB> {
     }
 }
 
-impl<'db, T: Table> TableHandleMut<'db, T> {
+impl<'a, 'db, T: Table> TableHandleMut<'a, 'db, T> {
     pub fn insert(&mut self, row: T) -> Result<i64>
     where
         T: WithRowId, // TODO: Support inserting into non-rowid tables
@@ -122,20 +122,19 @@ impl<'db, T: Table> TableHandleMut<'db, T> {
 
         let mut record = serialize_record(row)?;
 
-        // TODO
-        // let mut rootpage = self.rootpage_mut()?;
-        // rootpage.insert_table_record(row_id, record)?;
+        let mut rootpage = self.rootpage_mut()?;
+        rootpage.insert_table_record(row_id, &record)?;
 
         Ok(row_id)
     }
 
-    pub(crate) fn rootpage_mut(&'db mut self) -> Result<BTreePageMut<'db>> {
+    pub(crate) fn rootpage_mut(&mut self) -> Result<BTreePageMut> {
         BTreePageMut::new(&mut self.transaction, self.rootpage)
     }
 }
 
-impl<'db, T: Table> From<TableHandleMut<'db, T>> for TableHandle<'db, T, Transaction<'db>> {
-    fn from(handle: TableHandleMut<'db, T>) -> Self {
+impl<'a, 'db, T: Table> From<TableHandleMut<'a, 'db, T>> for TableHandle<'db, T, Transaction<'a>> {
+    fn from(handle: TableHandleMut<'a, 'db, T>) -> Self {
         Self {
             db: handle.transaction,
             rootpage: handle.rootpage,
@@ -175,7 +174,7 @@ impl<DB: ReadDB> ReadSchema for DB {
 }
 
 impl<'a> Transaction<'a> {
-    pub fn table_mut<T: Table>(&'a mut self) -> Result<TableHandleMut<T>> {
+    pub fn table_mut<'b, T: Table>(&'b mut self) -> Result<TableHandleMut<'b, 'a, T>> {
         let rootpage = table_rootpage::<T>(self)?;
 
         Ok(TableHandleMut {
@@ -185,7 +184,7 @@ impl<'a> Transaction<'a> {
         })
     }
 
-    pub fn create_table<T: Table>(&'a mut self) -> Result<()> {
+    pub fn create_table<T: Table>(&mut self) -> Result<()> {
         let mut schema_table = self.table_mut::<Schema>()?;
 
         for schema in T::schemas() {
@@ -331,10 +330,9 @@ mod tests {
     fn test_create_table() {
         let mut db = DB::new();
 
-        {
-            let mut transaction = db.begin_transaction().unwrap();
-            transaction.create_table::<Strings>().unwrap();
-        }
+        let mut transaction = db.begin_transaction().unwrap();
+        transaction.create_table::<Strings>().unwrap();
+        transaction.commit();
 
         let _strings = db.table::<Strings>().unwrap();
     }

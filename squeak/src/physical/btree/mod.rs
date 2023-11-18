@@ -6,7 +6,11 @@ use zerocopy::{
     AsBytes, FromBytes,
 };
 
-use crate::physical::{buf::Buf, db::ReadDB, header as db_header, varint};
+use crate::physical::{
+    buf::{Buf, BufMut},
+    db::ReadDB,
+    header as db_header, varint,
+};
 
 use self::iter::{BTreeIndexEntries, BTreeTableEntries};
 
@@ -162,7 +166,7 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
 }
 
 impl<'a> BTreePageMut<'a> {
-    pub fn new(transaction: &'a mut Transaction<'a>, page_number: u32) -> Result<Self> {
+    pub fn new(transaction: &'a mut Transaction, page_number: u32) -> Result<Self> {
         let data = transaction.page_mut(page_number)?;
 
         let start = db_header::reserved(page_number);
@@ -194,6 +198,36 @@ impl<'a> BTreePageMut<'a> {
             header,
             data,
         }
+    }
+
+    pub fn insert_table_record(&mut self, row_id: i64, record: &[u8]) -> Result<()> {
+        assert_eq!(self.header.page_type(), BTreePageType::LeafTable); // TODO: support inner nodes
+
+        let mut cell = Vec::with_capacity(18 + record.len());
+        cell.write_varint(record.len() as i64);
+        cell.write_varint(row_id);
+        cell.extend_from_slice(record);
+
+        // TODO: check cell order and avoid overflow (too many cells or too large of cells)
+        self.append_cell(&cell);
+
+        Ok(())
+    }
+
+    fn append_cell(&mut self, cell: &[u8]) {
+        let ptr = self.header.cell_content_start.get() - cell.len() as u16;
+        self.data[ptr as usize..][..cell.len()].copy_from_slice(&cell);
+
+        let ptr = U16::from(ptr);
+        self.header.cell_content_start = ptr;
+
+        let cell_index = self.header.cell_count.get();
+        let start = db_header::reserved(self.page_number)
+            + self.header.size() as usize
+            + cell_index as usize * 2;
+        ptr.write_to_prefix(&mut self.data[start..]).unwrap();
+
+        self.header.cell_count = (cell_index + 1).into();
     }
 }
 

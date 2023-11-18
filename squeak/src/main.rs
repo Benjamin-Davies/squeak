@@ -48,9 +48,8 @@ fn main() {
     dbg!(crash_100);
 
     let mut db = DB::new();
-    {
-        let mut transaction = db.begin_transaction().unwrap();
-        transaction.create_table::<Crash>().unwrap();
-    }
+    let mut transaction = db.begin_transaction().unwrap();
+    transaction.create_table::<Crash>().unwrap();
+    transaction.commit();
     db.save_as("empty.db").unwrap();
 }

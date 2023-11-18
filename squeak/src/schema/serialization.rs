@@ -276,6 +276,7 @@ impl<'de> Deserializer<'de> for SerialValue {
         if let Self::Text(text) = self {
             visitor.visit_enum(text.into_deserializer())
         } else {
+            dbg!(self);
             todo!()
         }
     }
@@ -414,9 +415,9 @@ impl Serializer for &mut RecordSerializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        self.serialize_none()
+        self.serialize_str(variant)
     }
 
     fn serialize_newtype_struct<T: ?Sized>(
