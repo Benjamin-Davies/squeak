@@ -56,8 +56,6 @@ impl<'a> ReadDB for Transaction<'a> {
     }
 }
 
-// TODO: Remove once we start using these functions
-#[allow(unused)]
 impl<'a> Transaction<'a> {
     pub(crate) fn page_mut(&mut self, page_number: u32) -> Result<&mut [u8]> {
         match self.dirty_pages.entry(page_number) {
@@ -89,7 +87,7 @@ impl<'a> Transaction<'a> {
     }
 
     pub fn commit(self) {
-        let mut db = self.db;
+        let db = self.db;
         for (page_num, page) in self.dirty_pages {
             dbg!(page_num, page.len());
             // TODO: Write page to disk

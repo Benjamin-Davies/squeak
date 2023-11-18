@@ -47,7 +47,6 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
         loop {
             match self.page.page_type() {
                 BTreePageType::InteriorTable => {
-                    // TODO: binary search
                     let mut child_page_index = 0;
                     for index in 0..self.page.cell_count() {
                         let (_page_number, current_id) = self.page.interior_table_cell(index);
@@ -64,7 +63,6 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
                     self.stack.push((parent_page, child_page_index + 1));
                 }
                 BTreePageType::LeafTable => {
-                    // TODO: binary search
                     let mut leaf_index = 0;
                     for index in 0..self.page.cell_count() {
                         let (current_id, _data) = self.page.leaf_table_cell(index);
@@ -77,7 +75,7 @@ impl<'db, DB: ReadDB> BTreeTableEntries<'db, DB> {
                     self.index = leaf_index;
                     return Ok(());
                 }
-                ty => todo!("{ty:?}"),
+                ty => unreachable!("{ty:?} in BTreeTableEntries::seek"),
             }
         }
     }
@@ -115,7 +113,7 @@ impl<'db, DB: ReadDB> Iterator for BTreeTableEntries<'db, DB> {
 
                         return Some(Ok((row_id, record)));
                     }
-                    _ => todo!("{:?}", self.page.page_type()),
+                    _ => unreachable!("{:?} in BTreeTableEntries::next", self.page.page_type()),
                 }
             } else if let Some(popped) = self.stack.pop() {
                 (self.page, self.index) = popped;
@@ -144,7 +142,6 @@ impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> BTreeIndexEntries<'db, C, DB> {
         loop {
             match self.page.page_type() {
                 BTreePageType::InteriorIndex => {
-                    // TODO: binary search
                     let mut child_page_index = 0;
                     for index in 0..self.page.cell_count() {
                         let (_page_number, current_key) = self.page.interior_index_cell(index);
@@ -161,7 +158,6 @@ impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> BTreeIndexEntries<'db, C, DB> {
                     self.stack.push((parent_page, child_page_index + 1));
                 }
                 BTreePageType::LeafIndex => {
-                    // TODO: binary search
                     let mut leaf_index = 0;
                     for index in 0..self.page.cell_count() {
                         let current_key = self.page.leaf_index_cell(index);
@@ -174,7 +170,7 @@ impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> BTreeIndexEntries<'db, C, DB> {
                     self.index = leaf_index;
                     return Ok(());
                 }
-                ty => todo!("{ty:?}"),
+                ty => unreachable!("{ty:?} in BTreeIndexEntries::seek_start"),
             }
         }
     }
@@ -210,7 +206,7 @@ impl<'db, C: PartialOrd<[u8]>, DB: ReadDB> Iterator for BTreeIndexEntries<'db, C
                             _ => continue,
                         }
                     }
-                    _ => todo!("{:?}", self.page.page_type()),
+                    _ => unreachable!("{:?} in BTreeIndexEntries::next", self.page.page_type()),
                 }
             } else if let Some(popped) = self.stack.pop() {
                 (self.page, self.index) = popped;
