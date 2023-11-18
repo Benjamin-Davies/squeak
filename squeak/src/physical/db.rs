@@ -46,7 +46,9 @@ impl DB {
         let mut first_page = vec![0; header.page_size() as usize];
         header.write_to_prefix(&mut first_page).unwrap();
 
-        let _first_page = BTreePageMut::empty(1, BTreePageType::LeafTable, &mut first_page);
+        {
+            let _first_page = BTreePageMut::empty(1, BTreePageType::LeafTable, &mut first_page);
+        }
 
         let mut pages = SharedAppendMap::new();
         pages.insert_or_replace(1, first_page);

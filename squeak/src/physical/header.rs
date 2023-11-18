@@ -13,6 +13,14 @@ const HEADER_STRING: [u8; 16] = *b"SQLite format 3\0";
 const SQLITE_VERSION_NUMBER: u32 = 3_042_000;
 pub const HEADER_SIZE: usize = 100;
 
+pub fn reserved(page_number: u32) -> usize {
+    if page_number == 1 {
+        HEADER_SIZE
+    } else {
+        0
+    }
+}
+
 #[derive(
     Debug,
     Clone,

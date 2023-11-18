@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{mem, ops::Range};
 
 use anyhow::Result;
 use zerocopy::{
@@ -6,7 +6,7 @@ use zerocopy::{
     AsBytes, FromBytes,
 };
 
-use crate::physical::{buf::Buf, db::ReadDB, header::HEADER_SIZE, varint};
+use crate::physical::{buf::Buf, db::ReadDB, header as db_header, varint};
 
 use self::iter::{BTreeIndexEntries, BTreeTableEntries};
 
@@ -64,7 +64,7 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
     pub(crate) fn new(db: &'db DB, page_number: u32) -> Result<Self> {
         let data = db.page(page_number)?;
 
-        let start = if page_number == 1 { HEADER_SIZE } else { 0 };
+        let start = db_header::reserved(page_number);
         let header = BTreePageHeader::read_from_prefix(&data[start..]).unwrap();
         header.validate();
 
@@ -86,11 +86,8 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
 
     fn cell_pointer(&self, cell_index: u16) -> u16 {
         assert!(cell_index < self.cell_count());
-        let start = if self.page_number == 1 {
-            HEADER_SIZE
-        } else {
-            0
-        } + self.header.size() as usize
+        let start = db_header::reserved(self.page_number)
+            + self.header.size() as usize
             + cell_index as usize * 2;
         U16::read_from_prefix(&self.data[start..]).unwrap().get()
     }
@@ -164,7 +161,7 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
 
 impl<'a> BTreePageMut<'a> {
     pub fn empty(page_number: u32, page_type: BTreePageType, data: &'a mut [u8]) -> Self {
-        let start = if page_number == 1 { HEADER_SIZE } else { 0 };
+        let start = db_header::reserved(page_number);
 
         let header = BTreePageHeader {
             flags: page_type.into(),
@@ -174,14 +171,24 @@ impl<'a> BTreePageMut<'a> {
             fragmented_free_bytes: 0,
             right_most_pointer: 0.into(),
         };
-
-        header.write_to_prefix(&mut data[start..]).unwrap();
+        // Writing the header is defered until the page is dropped.
 
         Self {
             page_number,
             header,
             data,
         }
+    }
+}
+
+impl<'a> Drop for BTreePageMut<'a> {
+    fn drop(&mut self) {
+        let mut header_buf = [0; mem::size_of::<BTreePageHeader>()];
+        self.header.write_to(&mut header_buf).unwrap();
+
+        let start = db_header::reserved(self.page_number);
+        let header_size = self.header.size() as usize;
+        self.data[start..][..header_size].copy_from_slice(&header_buf[..header_size]);
     }
 }
 
