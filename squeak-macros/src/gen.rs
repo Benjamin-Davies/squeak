@@ -1,16 +1,18 @@
-use proc_macro2::TokenStream;
 use quote::{format_ident, quote, TokenStreamExt};
 
-use super::Table;
+use crate::{Column, SqlType, Table};
 
 pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
     let Table {
         ident,
         schema_type,
         name,
+        columns,
         pk_field,
         row_id_field,
     } = table;
+
+    let sql = gen_sql(&name, columns);
 
     let row_id_fn = if let Some(row_id_field) = row_id_field {
         let row_id_ident = row_id_field.ident.as_ref().unwrap();
@@ -34,8 +36,7 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
                     name: Self::NAME.to_owned(),
                     tbl_name: Self::NAME.to_owned(),
                     rootpage: 1,
-                    // TODO
-                    sql: Some("CREATE TABLE crashes(id)".to_owned()),
+                    sql: Some(#sql.to_owned()),
                 }]
                 // TODO: Indexes
             }
@@ -85,4 +86,26 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
     }
 
     result
+}
+
+fn gen_sql(name: &str, columns: Vec<Column>) -> String {
+    let columns = columns
+        .iter()
+        .map(|column| {
+            let name = &column.name;
+            let ty = match column.ty {
+                SqlType::Integer => "INTEGER",
+                SqlType::Real => "REAL",
+                SqlType::Text => "TEXT",
+                SqlType::Blob => "BLOB",
+                SqlType::None => "",
+            };
+            let pk = if column.pk { "PRIMARY KEY" } else { "" };
+
+            format!("{name} {ty} {pk}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!("CREATE TABLE {name}({columns})")
 }

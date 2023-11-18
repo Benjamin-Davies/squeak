@@ -338,11 +338,11 @@ impl Serializer for &mut RecordSerializer {
 
                 match bits_required {
                     ..=8 => SerialValue::I8(v as i8),
-                    ..=16 => SerialValue::I16((v as i16).into()),
-                    ..=24 => SerialValue::I24((v as i32).into()),
-                    ..=32 => SerialValue::I32((v as i32).into()),
-                    ..=48 => SerialValue::I48(v.into()),
-                    _ => SerialValue::I64(v.into()),
+                    9..=16 => SerialValue::I16((v as i16).into()),
+                    17..=24 => SerialValue::I24((v as i32).into()),
+                    25..=32 => SerialValue::I32((v as i32).into()),
+                    33..=48 => SerialValue::I48(v.into()),
+                    49.. => SerialValue::I64(v.into()),
                 }
             }
         };
@@ -444,50 +444,50 @@ impl Serializer for &mut RecordSerializer {
         value.serialize(self)
     }
 
-    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         Ok(self)
     }
 
-    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
         Ok(self)
     }
 
     fn serialize_tuple_struct(
         self,
-        name: &'static str,
-        len: usize,
+        _name: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
         Ok(self)
     }
 
     fn serialize_tuple_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
-        len: usize,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
         Ok(self)
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(self)
     }
 
     fn serialize_struct(
         self,
-        name: &'static str,
-        len: usize,
+        _name: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         Ok(self)
     }
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
-        len: usize,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         Ok(self)
     }

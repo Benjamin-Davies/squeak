@@ -216,7 +216,7 @@ impl<'a> BTreePageMut<'a> {
 
     fn append_cell(&mut self, cell: &[u8]) {
         let ptr = self.header.cell_content_start.get() - cell.len() as u16;
-        self.data[ptr as usize..][..cell.len()].copy_from_slice(&cell);
+        self.data[ptr as usize..][..cell.len()].copy_from_slice(cell);
 
         let ptr = U16::from(ptr);
         self.header.cell_content_start = ptr;

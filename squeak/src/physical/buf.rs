@@ -1,5 +1,5 @@
 use std::{
-    iter, mem,
+    mem,
     ops::{Deref, DerefMut},
 };
 

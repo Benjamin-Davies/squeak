@@ -1,5 +1,3 @@
-use serde::de::value;
-
 pub fn read(bytes: &[u8]) -> (i64, usize) {
     let mut result = 0;
     let mut i = 0;
@@ -25,6 +23,7 @@ pub fn read(bytes: &[u8]) -> (i64, usize) {
     (result as i64, i + 1)
 }
 
+#[allow(clippy::needless_range_loop)] // Verbose is more readable here.
 pub fn write(value: i64, bytes: &mut [u8]) -> usize {
     let bits_needed = i64::BITS - value.abs().leading_zeros() + 1;
     let bytes_needed = (bits_needed as usize + 7) / 7;

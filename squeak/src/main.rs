@@ -50,6 +50,18 @@ fn main() {
     let mut db = DB::new();
     let mut transaction = db.begin_transaction().unwrap();
     transaction.create_table::<Crash>().unwrap();
+    transaction
+        .table_mut::<Crash>()
+        .unwrap()
+        .insert(Crash {
+            id: 1,
+            _year: 2023,
+            _lat: 0.0,
+            _lng: 0.0,
+            _severity: 3,
+            _total_vehicles: 1,
+        })
+        .unwrap();
     transaction.commit();
     db.save_as("empty.db").unwrap();
 }

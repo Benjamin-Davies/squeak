@@ -129,7 +129,7 @@ impl<'a, 'db, T: Table> TableHandleMut<'a, 'db, T> {
     }
 
     pub(crate) fn rootpage_mut(&mut self) -> Result<BTreePageMut> {
-        BTreePageMut::new(&mut self.transaction, self.rootpage)
+        BTreePageMut::new(self.transaction, self.rootpage)
     }
 }
 
@@ -206,7 +206,7 @@ impl<'a> Transaction<'a> {
 mod tests {
     use super::*;
 
-    use crate::physical::{db::DB, transaction};
+    use crate::physical::db::DB;
 
     #[derive(Debug, Clone, Serialize, Deserialize, Table)]
     struct Empty {}

@@ -8,8 +8,23 @@ struct Table {
     ident: Ident,
     schema_type: Ident,
     name: String,
+    columns: Vec<Column>,
     pk_field: Option<Field>,
     row_id_field: Option<Field>,
+}
+
+struct Column {
+    name: String,
+    ty: SqlType,
+    pk: bool,
+}
+
+enum SqlType {
+    Integer,
+    Real,
+    Text,
+    Blob,
+    None,
 }
 
 #[proc_macro_derive(Table, attributes(table))]
