@@ -1,14 +1,14 @@
 use std::env::args;
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use squeak::{
     physical::db::DB,
-    schema::{serialization::row_id, ReadSchema, SchemaType, Table, WithRowId},
+    schema::{serialization::row_id, ReadSchema, Schema, SchemaType, Table, WithRowId},
 };
 use squeak_macros::Table;
 
-#[derive(Debug, Deserialize, Table)]
+#[derive(Debug, Serialize, Deserialize, Table)]
 #[table(name = "crashes")]
 struct Crash {
     #[table(row_id)]
@@ -48,5 +48,9 @@ fn main() {
     dbg!(crash_100);
 
     let mut db = DB::new();
+    {
+        let mut transaction = db.begin_transaction().unwrap();
+        transaction.create_table::<Crash>().unwrap();
+    }
     db.save_as("empty.db").unwrap();
 }

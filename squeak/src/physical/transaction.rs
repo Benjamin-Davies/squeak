@@ -9,6 +9,7 @@ use crate::physical::{
     header::Header,
 };
 
+#[derive(Debug)]
 pub struct Transaction<'a> {
     db: &'a mut DB,
     database_size: u32,

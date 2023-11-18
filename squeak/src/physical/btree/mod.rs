@@ -10,6 +10,8 @@ use crate::physical::{buf::Buf, db::ReadDB, header as db_header, varint};
 
 use self::iter::{BTreeIndexEntries, BTreeTableEntries};
 
+use super::transaction::Transaction;
+
 pub mod iter;
 
 #[derive(Debug, Clone)]
@@ -160,6 +162,20 @@ impl<'db, DB: ReadDB> BTreePage<'db, DB> {
 }
 
 impl<'a> BTreePageMut<'a> {
+    pub fn new(transaction: &'a mut Transaction<'a>, page_number: u32) -> Result<Self> {
+        let data = transaction.page_mut(page_number)?;
+
+        let start = db_header::reserved(page_number);
+        let header = BTreePageHeader::read_from_prefix(&data[start..]).unwrap();
+        header.validate();
+
+        Ok(Self {
+            page_number,
+            header,
+            data,
+        })
+    }
+
     pub fn empty(page_number: u32, page_type: BTreePageType, data: &'a mut [u8]) -> Self {
         let start = db_header::reserved(page_number);
 

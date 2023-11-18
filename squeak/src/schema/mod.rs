@@ -3,19 +3,23 @@ use std::marker::PhantomData;
 use anyhow::{anyhow, Result};
 use serde::{
     de::{DeserializeOwned, IntoDeserializer},
-    Deserialize,
+    Deserialize, Serialize,
 };
 use squeak_macros::Table;
 
-use crate::physical::{btree::BTreePage, db::ReadDB};
+use crate::physical::{
+    btree::{BTreePage, BTreePageMut},
+    db::ReadDB,
+    transaction::Transaction,
+};
 
-use self::record::Record;
+use self::{record::Record, serialization::RecordSerializer};
 
 pub mod range;
 pub mod record;
 pub mod serialization;
 
-#[derive(Debug, Clone, Deserialize, Table)]
+#[derive(Debug, Clone, Serialize, Deserialize, Table)]
 #[table(name = "sqlite_schema")]
 pub struct Schema {
     #[serde(rename = "type")]
@@ -26,7 +30,7 @@ pub struct Schema {
     pub sql: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SchemaType {
     Table,
@@ -35,9 +39,11 @@ pub enum SchemaType {
     Trigger,
 }
 
-pub trait Table: DeserializeOwned {
+pub trait Table: Serialize + DeserializeOwned {
     const TYPE: SchemaType;
     const NAME: &'static str;
+
+    fn schemas() -> Vec<Schema>;
 }
 
 pub trait WithRowId: Table {
@@ -52,6 +58,12 @@ pub trait WithoutRowId: Table {
 
 pub trait Index<T: Table>: WithoutRowId {
     fn get_row_id(&self) -> i64;
+}
+
+fn serialize_record<T: Serialize>(value: T) -> Result<Vec<u8>> {
+    let mut serializer = RecordSerializer::default();
+    value.serialize(&mut serializer)?;
+    Ok(serializer.into())
 }
 
 fn deserialize_record_with_row_id<T: WithRowId>((row_id, buf): (i64, &[u8])) -> Result<T> {
@@ -70,6 +82,13 @@ fn deserialize_record<T: DeserializeOwned>(buf: &[u8]) -> Result<T> {
 #[derive(Debug, Clone, Copy)]
 pub struct TableHandle<'db, T, DB: ?Sized> {
     db: &'db DB,
+    rootpage: u32,
+    _marker: PhantomData<T>,
+}
+
+#[derive(Debug)]
+pub struct TableHandleMut<'db, T> {
+    transaction: &'db mut Transaction<'db>,
     rootpage: u32,
     _marker: PhantomData<T>,
 }
@@ -94,31 +113,86 @@ impl<'db, T: Table, DB: ReadDB> TableHandle<'db, T, DB> {
     }
 }
 
+impl<'db, T: Table> TableHandleMut<'db, T> {
+    pub fn insert(&mut self, row: T) -> Result<i64>
+    where
+        T: WithRowId, // TODO: Support inserting into non-rowid tables
+    {
+        let row_id = 1; // TODO: Choose a row id
+
+        let mut record = serialize_record(row)?;
+
+        // TODO
+        // let mut rootpage = self.rootpage_mut()?;
+        // rootpage.insert_table_record(row_id, record)?;
+
+        Ok(row_id)
+    }
+
+    pub(crate) fn rootpage_mut(&'db mut self) -> Result<BTreePageMut<'db>> {
+        BTreePageMut::new(&mut self.transaction, self.rootpage)
+    }
+}
+
+impl<'db, T: Table> From<TableHandleMut<'db, T>> for TableHandle<'db, T, Transaction<'db>> {
+    fn from(handle: TableHandleMut<'db, T>) -> Self {
+        Self {
+            db: handle.transaction,
+            rootpage: handle.rootpage,
+            _marker: PhantomData,
+        }
+    }
+}
+
+fn table_rootpage<T: Table>(db: &impl ReadDB) -> Result<u32> {
+    if T::NAME == Schema::NAME {
+        Ok(1)
+    } else {
+        let mut rootpage = None;
+        for schema in db.table::<Schema>()?.iter()? {
+            let schema = schema?;
+            if schema.type_ == T::TYPE && schema.name == T::NAME {
+                rootpage = Some(schema.rootpage);
+                break;
+            }
+        }
+        rootpage.ok_or_else(|| anyhow!("Table {} not found in schema", T::NAME))
+    }
+}
+
 pub trait ReadSchema: ReadDB {
     fn table<T: Table>(&self) -> Result<TableHandle<T, Self>>;
 }
 
 impl<DB: ReadDB> ReadSchema for DB {
     fn table<T: Table>(&self) -> Result<TableHandle<T, DB>> {
-        let rootpage = if T::NAME == Schema::NAME {
-            1
-        } else {
-            let mut rootpage = None;
-            for schema in self.table::<Schema>()?.iter()? {
-                let schema = schema?;
-                if schema.type_ == T::TYPE && schema.name == T::NAME {
-                    rootpage = Some(schema.rootpage);
-                    break;
-                }
-            }
-            rootpage.ok_or_else(|| anyhow!("Table {} not found in schema", T::NAME))?
-        };
-
         Ok(TableHandle {
             db: self,
+            rootpage: table_rootpage::<T>(self)?,
+            _marker: PhantomData,
+        })
+    }
+}
+
+impl<'a> Transaction<'a> {
+    pub fn table_mut<T: Table>(&'a mut self) -> Result<TableHandleMut<T>> {
+        let rootpage = table_rootpage::<T>(self)?;
+
+        Ok(TableHandleMut {
+            transaction: self,
             rootpage,
             _marker: PhantomData,
         })
+    }
+
+    pub fn create_table<T: Table>(&'a mut self) -> Result<()> {
+        let mut schema_table = self.table_mut::<Schema>()?;
+
+        for schema in T::schemas() {
+            schema_table.insert(schema)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -126,12 +200,12 @@ impl<DB: ReadDB> ReadSchema for DB {
 mod tests {
     use super::*;
 
-    use crate::physical::db::DB;
+    use crate::physical::{db::DB, transaction};
 
-    #[derive(Debug, Clone, Deserialize, Table)]
+    #[derive(Debug, Clone, Serialize, Deserialize, Table)]
     struct Empty {}
 
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Table)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Table)]
     struct Strings {
         #[table(primary_key)]
         pub string: String,
@@ -251,5 +325,17 @@ mod tests {
                 string: "bar".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn test_create_table() {
+        let mut db = DB::new();
+
+        {
+            let mut transaction = db.begin_transaction().unwrap();
+            transaction.create_table::<Strings>().unwrap();
+        }
+
+        let _strings = db.table::<Strings>().unwrap();
     }
 }

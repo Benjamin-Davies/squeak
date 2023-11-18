@@ -26,6 +26,17 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
         impl Table for #ident {
             const TYPE: SchemaType = SchemaType::#schema_type;
             const NAME: &'static str = #name;
+
+            fn schemas() -> Vec<Schema> {
+                vec![Schema {
+                    type_: Self::TYPE,
+                    name: Self::NAME.to_owned(),
+                    tbl_name: Self::NAME.to_owned(),
+                    rootpage: 0,
+                    sql: None, // TODO
+                }]
+                // TODO: Indexes
+            }
         }
 
         impl WithRowId for #ident {
@@ -40,7 +51,7 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
         let pk_field_ty = &pk_field.ty;
 
         result.append_all(quote!(
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
             struct #pk_index_ident {
                 #pk_field_ident: #pk_field_ty,
                 key: i64,
@@ -49,6 +60,10 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
             impl Table for #pk_index_ident {
                 const TYPE: SchemaType = SchemaType::Index;
                 const NAME: &'static str = #pk_index_name;
+
+                fn schemas() -> Vec<Schema> {
+                    todo!()
+                }
             }
 
             impl WithoutRowId for #pk_index_ident {

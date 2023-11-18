@@ -2,7 +2,7 @@ use std::fmt;
 
 use zerocopy::big_endian::{F64, I16, I32, I64};
 
-use crate::physical::buf::Buf;
+use crate::physical::buf::{Buf, BufMut};
 
 use self::{
     ints::{I24, I48},
@@ -12,7 +12,7 @@ use self::{
 pub mod ints;
 pub mod iter;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct Record<'a> {
     data: &'a [u8],
 }
@@ -93,6 +93,25 @@ impl From<i64> for SerialType {
     }
 }
 
+impl From<SerialType> for i64 {
+    fn from(value: SerialType) -> Self {
+        match value {
+            SerialType::Null => 0,
+            SerialType::I8 => 1,
+            SerialType::I16 => 2,
+            SerialType::I24 => 3,
+            SerialType::I32 => 4,
+            SerialType::I48 => 5,
+            SerialType::I64 => 6,
+            SerialType::F64 => 7,
+            SerialType::Zero => 8,
+            SerialType::One => 9,
+            SerialType::Blob(n) => n as i64 * 2 + 12,
+            SerialType::Text(n) => n as i64 * 2 + 13,
+        }
+    }
+}
+
 impl SerialValue {
     pub fn consume(ty: SerialType, data: &mut &[u8]) -> Self {
         match ty {
@@ -110,6 +129,38 @@ impl SerialValue {
             SerialType::Text(n) => {
                 Self::Text(String::from_utf8(data.consume_bytes(n as usize).to_vec()).unwrap())
             }
+        }
+    }
+
+    pub fn serial_type(&self) -> SerialType {
+        match self {
+            Self::Null => SerialType::Null,
+            Self::I8(_) => SerialType::I8,
+            Self::I16(_) => SerialType::I16,
+            Self::I24(_) => SerialType::I24,
+            Self::I32(_) => SerialType::I32,
+            Self::I48(_) => SerialType::I48,
+            Self::I64(_) => SerialType::I64,
+            Self::F64(_) => SerialType::F64,
+            Self::Zero => SerialType::Zero,
+            Self::One => SerialType::One,
+            Self::Blob(value) => SerialType::Blob(value.len() as u64),
+            Self::Text(value) => SerialType::Text(value.len() as u64),
+        }
+    }
+
+    pub fn write(&self, result: &mut impl BufMut) {
+        match self {
+            Self::Null | Self::Zero | Self::One => {}
+            &Self::I8(value) => result.write(value),
+            &Self::I16(value) => result.write(value),
+            &Self::I24(value) => result.write(value),
+            &Self::I32(value) => result.write(value),
+            &Self::I48(value) => result.write(value),
+            &Self::I64(value) => result.write(value),
+            &Self::F64(value) => result.write(value),
+            Self::Blob(value) => result.extend(value.iter().copied()),
+            Self::Text(value) => result.extend(value.bytes()),
         }
     }
 }
