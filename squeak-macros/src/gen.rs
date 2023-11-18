@@ -1,3 +1,4 @@
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote, TokenStreamExt};
 
 use super::Table;
@@ -32,8 +33,9 @@ pub(crate) fn gen_table_impls(table: Table) -> proc_macro2::TokenStream {
                     type_: Self::TYPE,
                     name: Self::NAME.to_owned(),
                     tbl_name: Self::NAME.to_owned(),
-                    rootpage: 0,
-                    sql: None, // TODO
+                    rootpage: 1,
+                    // TODO
+                    sql: Some("CREATE TABLE crashes(id)".to_owned()),
                 }]
                 // TODO: Indexes
             }

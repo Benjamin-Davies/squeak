@@ -8,7 +8,7 @@ use serde::{
 use squeak_macros::Table;
 
 use crate::physical::{
-    btree::{BTreePage, BTreePageMut},
+    btree::{BTreePage, BTreePageMut, BTreePageType},
     db::ReadDB,
     transaction::Transaction,
 };
@@ -120,7 +120,7 @@ impl<'a, 'db, T: Table> TableHandleMut<'a, 'db, T> {
     {
         let row_id = 1; // TODO: Choose a row id
 
-        let mut record = serialize_record(row)?;
+        let record = serialize_record(row)?;
 
         let mut rootpage = self.rootpage_mut()?;
         rootpage.insert_table_record(row_id, &record)?;
@@ -185,9 +185,16 @@ impl<'a> Transaction<'a> {
     }
 
     pub fn create_table<T: Table>(&mut self) -> Result<()> {
-        let mut schema_table = self.table_mut::<Schema>()?;
+        let mut schemas = T::schemas();
 
-        for schema in T::schemas() {
+        for schema in &mut schemas {
+            let (rootpage, data) = self.new_page()?;
+            let _ = BTreePageMut::empty(rootpage, BTreePageType::LeafTable, data);
+            schema.rootpage = rootpage;
+        }
+
+        let mut schema_table = self.table_mut::<Schema>()?;
+        for schema in schemas {
             schema_table.insert(schema)?;
         }
 
