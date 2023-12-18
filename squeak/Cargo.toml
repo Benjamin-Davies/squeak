@@ -6,6 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 serde = { version = "1.0.188", features = ["derive"] }
-zerocopy = { version = "0.7.8", features = ["derive"] }
+zerocopy = { version = "0.7.31", features = ["derive"] }
 
 squeak-macros = { path = "../squeak-macros" }
